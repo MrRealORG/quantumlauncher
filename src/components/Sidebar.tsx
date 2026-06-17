@@ -10,6 +10,7 @@ import {
   Pencil,
   FolderPlus,
   MoreHorizontal,
+  XCircle,
 } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import ContextMenu from "@/components/common/ContextMenu";
@@ -24,9 +25,11 @@ export default function Sidebar() {
     serverInstances,
     selectedInstance,
     sidebarConfig,
+    runningInstances,
     selectInstance,
     deleteInstance,
     renameInstance,
+    killGame,
     saveSidebar,
     setScreen,
     updateSidebar,
@@ -210,6 +213,7 @@ export default function Sidebar() {
     const name = node.name;
     const selected = isSelected(name, kind);
     const isRenaming = renameState === name;
+    const isRunning = runningInstances.has(name);
 
     return (
       <div
@@ -227,6 +231,9 @@ export default function Sidebar() {
           <Server className="w-3.5 h-3.5 text-theme-mid flex-shrink-0" />
         ) : (
           <Monitor className="w-3.5 h-3.5 text-theme-mid flex-shrink-0" />
+        )}
+        {isRunning && (
+          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
         )}
         {isRenaming ? (
           <input
@@ -319,6 +326,18 @@ export default function Sidebar() {
           x={contextMenu.x}
           y={contextMenu.y}
           items={[
+            ...(runningInstances.has(contextMenu.name) && contextMenu.kind
+              ? [
+                  {
+                    label: "Kill Process",
+                    icon: <XCircle className="w-4 h-4" />,
+                    onClick: () => {
+                      killGame(contextMenu.name, contextMenu.kind!);
+                    },
+                  },
+                  { separator: true as const },
+                ]
+              : []),
             {
               label: "Rename",
               icon: <Pencil className="w-4 h-4" />,

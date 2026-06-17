@@ -378,5 +378,5 @@ export type Screen =
   | { type: "export_instance" }
   | { type: "shortcut" }
   | { type: "onboarding"; step: number }
-  | { type: "changelog" }
+  | { type: "changelog"; content?: string }
   | { type: "error"; message: string };

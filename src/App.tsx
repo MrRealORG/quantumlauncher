@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { useThemeStore } from "@/stores/themeStore";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import Titlebar from "@/components/Titlebar";
 import Sidebar from "@/components/Sidebar";
 import MainContent from "@/components/MainContent";
@@ -12,6 +13,7 @@ import LoaderModal from "@/components/modals/LoaderModal";
 import ExportInstanceModal from "@/components/modals/ExportInstanceModal";
 import ModDescriptionModal from "@/components/modals/ModDescriptionModal";
 import OnboardingModal from "@/components/modals/OnboardingModal";
+import ChangelogModal from "@/components/modals/ChangelogModal";
 import ShortcutModal from "@/components/modals/ShortcutModal";
 import Toast from "@/components/common/Toast";
 
@@ -20,6 +22,9 @@ export default function App() {
   const config = useAppStore((s) => s.config);
   const initialize = useAppStore((s) => s.initialize);
   const applyFromConfig = useThemeStore((s) => s.applyFromConfig);
+
+  // Global keyboard shortcuts
+  useKeyboardShortcuts();
 
   // Initialize app
   useEffect(() => {
@@ -36,6 +41,15 @@ export default function App() {
     return (
       <div className="w-full h-full bg-theme-background">
         <OnboardingModal />
+      </div>
+    );
+  }
+
+  // Changelog screen
+  if (screen.type === "changelog") {
+    return (
+      <div className="w-full h-full bg-theme-background">
+        <ChangelogModal />
       </div>
     );
   }

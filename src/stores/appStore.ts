@@ -21,6 +21,8 @@ interface AppState {
   // Navigation
   screen: Screen;
   setScreen: (screen: Screen) => void;
+  activeTab: "play" | "logs" | "edit";
+  setActiveTab: (tab: "play" | "logs" | "edit") => void;
 
   // Instances
   clientInstances: string[];
@@ -52,6 +54,7 @@ interface AppState {
   // Game
   isLaunching: boolean;
   launchProgress: GenericProgress | null;
+  runningInstances: Set<string>;
   launchGame: () => Promise<void>;
   killGame: (name: string, kind: string) => Promise<void>;
 
@@ -86,6 +89,8 @@ let unlisteners: UnlistenFn[] = [];
 export const useAppStore = create<AppState>((set, get) => ({
   screen: { type: "main" },
   setScreen: (screen) => set({ screen }),
+  activeTab: "play" as const,
+  setActiveTab: (tab) => set({ activeTab: tab }),
 
   clientInstances: [],
   serverInstances: [],
@@ -102,6 +107,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   isLaunching: false,
   launchProgress: null,
+  runningInstances: new Set<string>(),
 
   logs: {},
   toasts: [],
@@ -252,6 +258,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     try {
       await tauriCommands.launch_game(selectedInstance, account, username);
+      // Track running instance
+      set((s) => {
+        const next = new Set(s.runningInstances);
+        next.add(selectedInstance.name);
+        return { runningInstances: next };
+      });
     } catch (err) {
       console.error("Failed to launch game:", err);
       get().addToast("Failed to launch game", "error");
@@ -317,8 +329,34 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     unlisteners = [];
 
+    // Get current launcher version
+    let currentVersion = "0.0.0";
+    try {
+      currentVersion = await tauriCommands.get_launcher_version();
+    } catch { /* version not available */ }
+
     // Load config
     await get().loadConfig();
+
+    // Check if new user or version changed → show onboarding or changelog
+    const config = get().config;
+    const isNewUser = !config; // No config file = first run
+    const versionChanged = config && config.version && config.version !== currentVersion;
+
+    if (isNewUser) {
+      set({ screen: { type: "onboarding", step: 0 } });
+    } else if (versionChanged) {
+      // Load changelog content and show it
+      try {
+        const changelog = await tauriCommands.get_changelog();
+        set({ screen: { type: "changelog", content: changelog } });
+        // Update version in config
+        get().updateConfig({ version: currentVersion } as any);
+        await get().saveConfig();
+      } catch {
+        // Changelog not available, skip
+      }
+    }
 
     // Load instances
     await get().loadInstances();
@@ -369,17 +407,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       const unlistenExit = await listen<{ instance: string; kind: string; crashed: boolean }>("game_exit", (event) => {
         const { instance, kind, crashed } = event.payload;
         const key = `${kind}/${instance}`;
-        set((s) => ({
-          isLaunching: false,
-          launchProgress: null,
-          logs: {
-            ...s.logs,
-            [key]: {
-              ...s.logs[key],
-              has_crashed: crashed,
+        set((s) => {
+          const next = new Set(s.runningInstances);
+          next.delete(instance);
+          return {
+            isLaunching: false,
+            launchProgress: null,
+            runningInstances: next,
+            logs: {
+              ...s.logs,
+              [key]: {
+                ...s.logs[key],
+                has_crashed: crashed,
+              },
             },
-          },
-        }));
+          };
+        });
         if (crashed) {
           get().addToast(`Game crashed`, "error");
         }
