@@ -5,7 +5,7 @@ import Modal from "@/components/common/Modal";
 import Button from "@/components/common/Button";
 import Input from "@/components/common/Input";
 import { tauriCommands } from "@/utils/tauri";
-import type { ListEntry, ListEntryKind } from "@/types";
+import type { ListEntry, ListEntryKind, InstanceKind } from "@/types";
 
 const KIND_FILTERS: { kind: ListEntryKind; label: string }[] = [
   { kind: "Release", label: "Release" },
@@ -36,7 +36,7 @@ export default function CreateInstanceModal() {
   );
   const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
   const [instanceName, setInstanceName] = useState("");
-  const [instanceKind, setInstanceKind] = useState<string>("Client");
+  const [instanceKind, setInstanceKind] = useState<InstanceKind>("Client");
   const [isCreating, setIsCreating] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +48,7 @@ export default function CreateInstanceModal() {
     setLoading(true);
     tauriCommands
       .get_version_list()
-      .then(setVersions)
+      .then((r) => setVersions(r.versions))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [open]);
@@ -127,7 +127,8 @@ export default function CreateInstanceModal() {
       setIsImporting(true);
       setError(null);
 
-      const name = await tauriCommands.import_instance(path);
+      const result = await tauriCommands.import_instance(path);
+      const name = result?.instance_name || "Imported";
       await loadInstances();
       addToast(`Instance "${name}" imported`, "success");
       setScreen({ type: "main" });

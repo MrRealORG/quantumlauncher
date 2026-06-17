@@ -42,8 +42,9 @@ export default function LoaderModal() {
     setLoading(true);
     const version = instanceConfig?.mod_type_info?.version || "";
     tauriCommands
-      .get_loader_versions(selectedLoader, version)
-      .then((v) => {
+      .get_loader_versions(selectedInstance.name, selectedInstance.kind, selectedLoader)
+      .then((lv) => {
+        const v = lv.map((entry) => entry.version);
         setVersions(v);
         if (v.length > 0) setSelectedVersion(v[0]);
       })
@@ -56,7 +57,7 @@ export default function LoaderModal() {
     setInstalling(true);
     setProgress({ done: 0, total: 1, has_finished: false });
     try {
-      await tauriCommands.install_loader(selectedInstance, selectedLoader, selectedVersion);
+      await tauriCommands.install_loader(selectedInstance.name, selectedInstance.kind, selectedLoader, selectedVersion);
       setProgress({ done: 1, total: 1, has_finished: true, message: "Installed!" });
       addToast(`${selectedLoader} ${selectedVersion} installed`, "success");
       // Refresh instance config
@@ -73,7 +74,7 @@ export default function LoaderModal() {
     if (!selectedInstance) return;
     setUninstalling(true);
     try {
-      await tauriCommands.uninstall_loader(selectedInstance);
+      await tauriCommands.uninstall_loader(selectedInstance.name, selectedInstance.kind);
       addToast("Loader uninstalled", "success");
       const config = await tauriCommands.get_instance_config(selectedInstance.name, selectedInstance.kind);
       useAppStore.setState({ instanceConfig: config });

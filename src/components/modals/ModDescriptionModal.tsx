@@ -4,7 +4,7 @@ import { useAppStore } from "@/stores/appStore";
 import Modal from "@/components/common/Modal";
 import Button from "@/components/common/Button";
 import { tauriCommands } from "@/utils/tauri";
-import type { SearchMod, ModId, UrlKind } from "@/types";
+import type { SearchMod } from "@/types";
 
 export default function ModDescriptionModal() {
   const screen = useAppStore((s) => s.screen);
@@ -24,25 +24,17 @@ export default function ModDescriptionModal() {
   useEffect(() => {
     if (!open || !mod) return;
     setLoading(true);
-    const modId: ModId =
-      mod.backend === "curseforge"
-        ? { type: "curseforge", id: mod.id }
-        : { type: "modrinth", id: mod.id };
     tauriCommands
-      .get_mod_description(modId)
-      .then((data) => setDescription(data.description))
+      .get_mod_description(mod.id)
+      .then(([desc]) => setDescription(desc))
       .catch(() => setDescription("<p>Failed to load description</p>"))
       .finally(() => setLoading(false));
   }, [open, mod]);
 
   const handleDownload = useCallback(async () => {
     if (!mod || !selectedInstance) return;
-    const modId: ModId =
-      mod.backend === "curseforge"
-        ? { type: "curseforge", id: mod.id }
-        : { type: "modrinth", id: mod.id };
     try {
-      await tauriCommands.download_mod(selectedInstance, modId);
+      await tauriCommands.download_mod(mod.id, selectedInstance.name, selectedInstance.kind, mod.backend);
       addToast(`Downloaded ${mod.title}`, "success");
     } catch {
       addToast("Download failed", "error");

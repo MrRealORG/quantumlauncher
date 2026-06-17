@@ -78,7 +78,7 @@ export function useKeyboardShortcuts() {
         runningInstances.has(selectedInstance.name)
       ) {
         e.preventDefault();
-        killGame(selectedInstance.name, selectedInstance.kind);
+        killGame(selectedInstance.name);
         return;
       }
 

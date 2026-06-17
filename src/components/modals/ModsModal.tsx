@@ -22,15 +22,11 @@ import Input from "@/components/common/Input";
 import TabBar from "@/components/common/TabBar";
 import { tauriCommands } from "@/utils/tauri";
 import type {
-  SearchMod,
-  SearchResult,
   QueryType,
   StoreBackendType,
-  Category,
-  ModId,
-  Loader,
   LocalMod,
 } from "@/types";
+import type { CategorySerializable, SearchResultSerializable } from "@/utils/tauri";
 
 const QUERY_TYPES: { id: QueryType; label: string }[] = [
   { id: "Mods", label: "Mods" },
@@ -55,10 +51,11 @@ export default function ModsModal() {
   const [queryType, setQueryType] = useState<QueryType>("Mods");
   const [backend, setBackend] = useState<StoreBackendType>("modrinth");
   const [searchQuery, setSearchQuery] = useState("");
-  const [results, setResults] = useState<SearchResult | null>(null);
+  const [results, setResults] = useState<SearchResultSerializable | null>(null);
+  const [searchOffset, setSearchOffset] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [categories, setCategories] = useState<CategorySerializable[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<CategorySerializable[]>([]);
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
   const [installedMods, setInstalledMods] = useState<LocalMod[]>([]);
   const [loadingInstalled, setLoadingInstalled] = useState(false);
@@ -71,7 +68,7 @@ export default function ModsModal() {
   useEffect(() => {
     if (!open) return;
     tauriCommands
-      .get_categories(backend, queryType)
+      .get_categories(queryType, backend)
       .then(setCategories)
       .catch(() => {});
   }, [open, backend, queryType]);
@@ -81,7 +78,7 @@ export default function ModsModal() {
     if (contentTab !== "installed" || !selectedInstance) return;
     setLoadingInstalled(true);
     tauriCommands
-      .get_local_mods(selectedInstance)
+      .get_local_mods(selectedInstance.name, selectedInstance.kind)
       .then(setInstalledMods)
       .catch(() => setInstalledMods([]))
       .finally(() => setLoadingInstalled(false));
@@ -93,18 +90,21 @@ export default function ModsModal() {
     setLoading(true);
     try {
       const result = await tauriCommands.search_mods(
-        searchQuery,
-        "", // version
-        instanceConfig?.mod_type || "Vanilla",
-        backend,
-        queryType,
+        {
+          name: searchQuery,
+          version: "",
+          loader: instanceConfig?.mod_type || "Vanilla",
+          server_side: selectedInstance.kind === "Server",
+          kind: queryType,
+          open_source: false,
+          categories: selectedCategories,
+          categories_use_all: false,
+        },
         0,
-        selectedCategories,
-        false,
-        false,
-        selectedInstance.kind === "Server"
+        backend,
       );
       setResults(result);
+      setSearchOffset(0);
     } catch {
       addToast("Search failed", "error");
     } finally {
@@ -117,39 +117,39 @@ export default function ModsModal() {
     if (!results || !selectedInstance || results.reached_end) return;
     setLoading(true);
     try {
+      const nextOffset = searchOffset + results.mods.length;
       const newResults = await tauriCommands.search_mods(
-        searchQuery,
-        "",
-        instanceConfig?.mod_type || "Vanilla",
+        {
+          name: searchQuery,
+          version: "",
+          loader: instanceConfig?.mod_type || "Vanilla",
+          server_side: selectedInstance.kind === "Server",
+          kind: queryType,
+          open_source: false,
+          categories: selectedCategories,
+          categories_use_all: false,
+        },
+        nextOffset,
         backend,
-        queryType,
-        results.offset + results.mods.length,
-        selectedCategories,
-        false,
-        false,
-        selectedInstance.kind === "Server"
       );
       setResults({
         ...newResults,
         mods: [...results.mods, ...newResults.mods],
       });
+      setSearchOffset(nextOffset);
     } catch {
       // ignore
     } finally {
       setLoading(false);
     }
-  }, [results, searchQuery, selectedInstance, instanceConfig, backend, queryType, selectedCategories]);
+  }, [results, searchQuery, selectedInstance, instanceConfig, backend, queryType, selectedCategories, searchOffset]);
 
   // Download a mod
   const handleDownload = useCallback(
-    async (mod: SearchMod) => {
+    async (mod: SearchResultSerializable["mods"][number]) => {
       if (!selectedInstance) return;
-      const modId: ModId =
-        mod.backend === "curseforge"
-          ? { type: "curseforge", id: mod.id }
-          : { type: "modrinth", id: mod.id };
       try {
-        await tauriCommands.download_mod(selectedInstance, modId);
+        await tauriCommands.download_mod(mod.id, selectedInstance.name, selectedInstance.kind, mod.backend);
         addToast(`Downloaded ${mod.title}`, "success");
       } catch {
         addToast(`Failed to download ${mod.title}`, "error");
@@ -187,9 +187,9 @@ export default function ModsModal() {
     [categories]
   );
 
-  const toggleCategory = useCallback((slug: string) => {
+  const toggleCategory = useCallback((cat: CategorySerializable) => {
     setSelectedCategories((prev) =>
-      prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug]
+      prev.some((c) => c.slug === cat.slug) ? prev.filter((c) => c.slug !== cat.slug) : [...prev, cat]
     );
   }, []);
 
@@ -271,10 +271,10 @@ export default function ModsModal() {
                 {usableCategories.map((cat) => (
                   <button
                     key={cat.slug}
-                    onClick={() => toggleCategory(cat.slug)}
+                    onClick={() => toggleCategory(cat)}
                     className={`
                       w-full text-left px-2 py-0.5 rounded text-xs mb-0.5 transition-colors truncate
-                      ${selectedCategories.includes(cat.slug) ? "bg-theme-mid/20 text-theme-accent" : "text-theme-text-muted hover:bg-theme-second-dark/40"}
+                      ${selectedCategories.some((c) => c.slug === cat.slug) ? "bg-theme-mid/20 text-theme-accent" : "text-theme-text-muted hover:bg-theme-second-dark/40"}
                     `}
                   >
                     {cat.name}
@@ -433,7 +433,7 @@ export default function ModsModal() {
                         onClick={async () => {
                           if (!selectedInstance) return;
                           try {
-                            await tauriCommands.toggle_mod(selectedInstance, [mod.id]);
+                            await tauriCommands.toggle_mod(selectedInstance.name, selectedInstance.kind, [mod.id]);
                             setInstalledMods((prev) =>
                               prev.map((m) =>
                                 m.id === mod.id ? { ...m, enabled: !m.enabled } : m
@@ -465,7 +465,7 @@ export default function ModsModal() {
                           // For now, just reload the list
                           setLoadingInstalled(true);
                           tauriCommands
-                            .get_local_mods(selectedInstance)
+                            .get_local_mods(selectedInstance.name, selectedInstance.kind)
                             .then(setInstalledMods)
                             .catch(() => {})
                             .finally(() => setLoadingInstalled(false));
@@ -479,7 +479,7 @@ export default function ModsModal() {
                         onClick={async () => {
                           if (!selectedInstance) return;
                           try {
-                            await tauriCommands.delete_mod(selectedInstance, mod.name, mod.project_type);
+                            await tauriCommands.delete_mod(selectedInstance.name, selectedInstance.kind, [mod.id]);
                             setInstalledMods((prev) => prev.filter((m) => m.id !== mod.id));
                             addToast(`Deleted ${mod.name}`, "info");
                           } catch {

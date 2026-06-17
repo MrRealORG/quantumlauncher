@@ -67,7 +67,7 @@
 
 use ql_core::{CLIENT, GenericProgress, IntoJsonError, JsonError, RequestError, info, pt, retry};
 use reqwest::{Client, StatusCode};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -88,7 +88,7 @@ use super::{AccountData, KeyringError};
 /// outside of this launcher**.
 pub const CLIENT_ID: &str = "43431a16-38f5-4b42-91f9-4bf70c3bee1e";
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AuthCodeResponse {
     pub user_code: String,
     device_code: String,

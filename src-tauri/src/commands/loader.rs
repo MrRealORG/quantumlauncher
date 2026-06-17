@@ -107,8 +107,10 @@ pub async fn get_loader_versions(
         | ql_mod_manager::loaders::fabric::version_list::FabricVersionList::Quilt(list)
         | ql_mod_manager::loaders::fabric::version_list::FabricVersionList::LegacyFabric(list)
         | ql_mod_manager::loaders::fabric::version_list::FabricVersionList::OrnitheMCFabric(list)
-        | ql_mod_manager::loaders::fabric::version_list::FabricVersionList::OrnitheMCQuilt(list)
-        | ql_mod_manager::loaders::fabric::version_list::FabricVersionList::Beta173 { babric, .. }
+        | ql_mod_manager::loaders::fabric::version_list::FabricVersionList::OrnitheMCQuilt(list) => {
+            list
+        }
+        ql_mod_manager::loaders::fabric::version_list::FabricVersionList::Beta173 { babric, .. }
         | ql_mod_manager::loaders::fabric::version_list::FabricVersionList::Both { legacy_fabric: babric, .. } => {
             babric
         }

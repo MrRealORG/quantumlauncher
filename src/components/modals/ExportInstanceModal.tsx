@@ -55,7 +55,6 @@ export default function ExportInstanceModal() {
       await tauriCommands.export_instance(
         selectedInstance.name,
         selectedInstance.kind,
-        exportPath,
         exceptions
       );
       setProgress(1);

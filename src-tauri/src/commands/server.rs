@@ -4,7 +4,7 @@ use std::sync::Arc;
 use ql_core::ListEntry;
 use ql_servers::{self, ServerProperties};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::events::{DownloadProgressPayload, EVENT_DOWNLOAD_PROGRESS};
 use crate::state::AppState;

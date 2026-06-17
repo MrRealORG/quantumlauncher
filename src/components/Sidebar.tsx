@@ -109,7 +109,7 @@ export default function Sidebar() {
   const [renameValue, setRenameValue] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<{
     name: string;
-    kind: string;
+    kind: InstanceKind;
     isFolder?: boolean;
     folderId?: string;
   } | null>(null);
@@ -400,7 +400,7 @@ export default function Sidebar() {
           label: "Kill Process",
           icon: <XCircle className="w-4 h-4" />,
           onClick: () => {
-            killGame(contextMenu.name, contextMenu.kind!);
+            killGame(contextMenu.name);
           },
         });
         items.push({ separator: true });

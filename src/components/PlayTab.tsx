@@ -251,7 +251,7 @@ export default function PlayTab() {
               size="lg"
               className="flex-1"
               icon={<Square className="w-5 h-5" />}
-              onClick={() => killGame(selectedInstance.name, selectedInstance.kind)}
+              onClick={() => killGame(selectedInstance.name)}
             >
               {isServer ? "Stop" : "Kill"}
             </Button>

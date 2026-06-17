@@ -4,7 +4,7 @@ import { useAppStore } from "@/stores/appStore";
 import Modal from "@/components/common/Modal";
 import Button from "@/components/common/Button";
 import Input from "@/components/common/Input";
-import { tauriCommands } from "@/utils/tauri";
+import { tauriCommands, type AccountInfo } from "@/utils/tauri";
 import type { AccountType, AccountData, ConfigAccount } from "@/types";
 
 type LoginMethod = "microsoft" | "elyby" | "littleskin" | "offline";
@@ -52,14 +52,14 @@ export default function LoginModal() {
 
   /** Store account data into config.accounts and update dropdown */
   const storeAccount = useCallback(
-    (account: AccountData) => {
+    (account: AccountInfo) => {
       if (!config) return;
 
       const niceName = account.nice_username || account.username;
       const configAccount: ConfigAccount = {
         uuid: account.uuid,
         skin: null,
-        account_type: account.account_type,
+        account_type: account.account_type as AccountType,
         keyring_identifier: null,
         username_nice: niceName,
       };

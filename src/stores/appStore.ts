@@ -5,14 +5,14 @@ import type {
   Instance,
   InstanceConfigJson,
   InstanceKind,
+  ListEntryKind,
   LauncherConfig,
-  AccountData,
   InstanceLog,
   SidebarNode,
   SidebarConfig,
   GenericProgress,
 } from "@/types";
-import { tauriCommands } from "@/utils/tauri";
+import { tauriCommands, type AccountInfo } from "@/utils/tauri";
 
 const OFFLINE_ACCOUNT_NAME = "(Offline)";
 const NEW_ACCOUNT_NAME = "+ Add Account";
@@ -34,9 +34,9 @@ interface AppState {
 
   loadInstances: () => Promise<void>;
   selectInstance: (name: string, kind: InstanceKind) => Promise<void>;
-  createInstance: (name: string, version: string, kind: string, listEntryKind: string, supportsServer: boolean) => Promise<void>;
-  deleteInstance: (name: string, kind: string) => Promise<void>;
-  renameInstance: (oldName: string, newName: string, kind: string) => Promise<void>;
+  createInstance: (name: string, version: string, kind: InstanceKind, listEntryKind: ListEntryKind, supportsServer: boolean) => Promise<void>;
+  deleteInstance: (name: string, kind: InstanceKind) => Promise<void>;
+  renameInstance: (oldName: string, newName: string, kind: InstanceKind) => Promise<void>;
 
   // Config
   config: LauncherConfig | null;
@@ -45,7 +45,7 @@ interface AppState {
   updateConfig: (partial: Partial<LauncherConfig>) => void;
 
   // Accounts
-  accounts: Record<string, AccountData>;
+  accounts: Record<string, AccountInfo>;
   accountsDropdown: string[];
   selectedAccount: string;
   loadAccounts: () => Promise<void>;
@@ -56,7 +56,7 @@ interface AppState {
   launchProgress: GenericProgress | null;
   runningInstances: Set<string>;
   launchGame: () => Promise<void>;
-  killGame: (name: string, kind: string) => Promise<void>;
+  killGame: (name: string) => Promise<void>;
 
   // Logs
   logs: Record<string, InstanceLog>;
@@ -195,7 +195,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ config });
 
       // Load accounts from config
-      const accounts: Record<string, AccountData> = {};
+      const accounts: Record<string, AccountInfo> = {};
       const dropdown: string[] = [OFFLINE_ACCOUNT_NAME, NEW_ACCOUNT_NAME];
       if (config.accounts) {
         for (const [username, accountData] of Object.entries(config.accounts)) {
@@ -275,10 +275,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ isLaunching: true, launchProgress: null });
 
     const account = selectedAccount !== OFFLINE_ACCOUNT_NAME ? accounts[selectedAccount] : null;
-    const username = config?.username || "Player";
 
     try {
-      await tauriCommands.launch_game(selectedInstance, account, username);
+      await tauriCommands.launch_game(selectedInstance.name, selectedInstance.kind, account, config?.global_settings ?? null);
       // Track running instance
       set((s) => {
         const next = new Set(s.runningInstances);
@@ -303,9 +302,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  killGame: async (name, kind) => {
+  killGame: async (name) => {
     try {
-      await tauriCommands.kill_game(name, kind);
+      await tauriCommands.kill_game(name);
       get().addToast("Game process terminated", "info");
     } catch (err) {
       console.error("Failed to kill game:", err);

@@ -380,7 +380,7 @@ export type Screen =
   | { type: "login" }
   | { type: "mods" }
   | { type: "loader" }
-  | { type: "mod_description"; mod: SearchMod }
+  | { type: "mod_description"; mod: import("@/utils/tauri").ModInfoSerializable }
   | { type: "export_instance" }
   | { type: "shortcut" }
   | { type: "onboarding"; step: number }

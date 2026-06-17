@@ -250,7 +250,7 @@ pub async fn login_yggdrasil(
     let type_str = account_type.to_string();
 
     match result {
-        auth::alt::Account::Account(account_data) => {
+        auth::yggdrasil::Account::Account(account_data) => {
             save_account_to_disk(&account_data).await?;
 
             Ok(LoginResult {
@@ -258,7 +258,7 @@ pub async fn login_yggdrasil(
                 is_needs_otp: false,
             })
         }
-        auth::alt::Account::NeedsOTP => Ok(LoginResult {
+        auth::yggdrasil::Account::NeedsOTP => Ok(LoginResult {
             account: AccountInfo {
                 access_token: None,
                 uuid: String::new(),
