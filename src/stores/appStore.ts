@@ -223,8 +223,29 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateConfig: (partial) => {
     const { config } = get();
     if (!config) return;
-    const updated = { ...config, ...partial };
-    set({ config: updated });
+
+    // Deep merge: for each key in partial, if both old and new values are
+    // plain objects, merge them recursively instead of replacing.
+    const merged = { ...config };
+    for (const [key, value] of Object.entries(partial)) {
+      if (
+        value !== null &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        merged[key as keyof LauncherConfig] !== null &&
+        typeof merged[key as keyof LauncherConfig] === "object" &&
+        !Array.isArray(merged[key as keyof LauncherConfig])
+      ) {
+        (merged as any)[key] = {
+          ...(merged[key as keyof LauncherConfig] as any),
+          ...(value as any),
+        };
+      } else {
+        (merged as any)[key] = value;
+      }
+    }
+
+    set({ config: merged });
     // Debounced save
     setTimeout(() => {
       const current = get().config;

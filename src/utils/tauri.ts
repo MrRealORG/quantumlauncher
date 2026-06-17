@@ -83,10 +83,10 @@ export const tauriCommands = {
   poll_microsoft_login: (userCode: string) => handleInvoke<AccountData | null>("poll_microsoft_login", { userCode }),
   login_yggdrasil: (username: string, password: string, authType: string, authUrl?: string) =>
     handleInvoke<{ account: AccountData; is_needs_otp: boolean }>("login_yggdrasil", { username, password, authType, authUrl }),
-  logout_account: (username: string) =>
-    handleInvoke<void>("logout_account", { username }),
-  refresh_account: (username: string) =>
-    handleInvoke<AccountData>("refresh_account", { username }),
+  logout_account: (username: string, accountType: string) =>
+    handleInvoke<void>("logout_account", { username, accountType }),
+  refresh_account: (username: string, accountType: string) =>
+    handleInvoke<AccountData>("refresh_account", { username, accountType }),
 
   // Mod Store
   search_mods: (

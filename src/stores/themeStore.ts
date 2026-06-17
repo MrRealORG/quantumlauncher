@@ -259,7 +259,7 @@ function getEffectiveLightness(mode: ThemeLightness): "Dark" | "Light" {
   return mode;
 }
 
-function injectCSSVariables(palette: ThemePalette) {
+function injectCSSVariables(palette: ThemePalette, isDark: boolean) {
   const root = document.documentElement;
   root.style.setProperty("--color-extra-dark", palette.extraDark);
   root.style.setProperty("--color-dark", palette.dark);
@@ -277,15 +277,13 @@ function injectCSSVariables(palette: ThemePalette) {
   root.style.setProperty("--color-error", palette.error);
   root.style.setProperty("--color-warning", palette.warning);
 
-  // Toggle dark class
-  const isDark = palette === DARK_PALETTES.Purple ? true :
-    palette.text === DARK_PALETTES.Purple.text;
-  if (palette.text === LIGHT_PALETTES.Purple.text) {
-    root.classList.remove("dark");
-    root.classList.add("light");
-  } else {
+  // Toggle dark/light class for any CSS that depends on it
+  if (isDark) {
     root.classList.remove("light");
     root.classList.add("dark");
+  } else {
+    root.classList.remove("dark");
+    root.classList.add("light");
   }
 }
 
@@ -305,7 +303,7 @@ export const useThemeStore = create<ThemeState>((set, get) => {
   const defaultPalette = DARK_PALETTES.Purple;
 
   // Inject initial
-  injectCSSVariables(defaultPalette);
+  injectCSSVariables(defaultPalette, true);
 
   // Listen for system dark mode changes
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
@@ -314,7 +312,7 @@ export const useThemeStore = create<ThemeState>((set, get) => {
       const effective = getEffectiveLightness("Auto");
       const palettes = effective === "Dark" ? DARK_PALETTES : LIGHT_PALETTES;
       const palette = palettes[themeColor];
-      injectCSSVariables(palette);
+      injectCSSVariables(palette, effective === "Dark");
       set({ palette });
     }
   });
@@ -330,7 +328,7 @@ export const useThemeStore = create<ThemeState>((set, get) => {
       const effective = getEffectiveLightness(lightnessMode);
       const palettes = effective === "Dark" ? DARK_PALETTES : LIGHT_PALETTES;
       const palette = palettes[color];
-      injectCSSVariables(palette);
+      injectCSSVariables(palette, effective === "Dark");
       set({ themeColor: color, palette });
     },
 
@@ -339,7 +337,7 @@ export const useThemeStore = create<ThemeState>((set, get) => {
       const effective = getEffectiveLightness(mode);
       const palettes = effective === "Dark" ? DARK_PALETTES : LIGHT_PALETTES;
       const palette = palettes[themeColor];
-      injectCSSVariables(palette);
+      injectCSSVariables(palette, effective === "Dark");
       set({ lightnessMode: mode, palette });
     },
 
@@ -361,7 +359,7 @@ export const useThemeStore = create<ThemeState>((set, get) => {
       const effective = getEffectiveLightness(newLightness);
       const palettes = effective === "Dark" ? DARK_PALETTES : LIGHT_PALETTES;
       const palette = palettes[newColor];
-      injectCSSVariables(palette);
+      injectCSSVariables(palette, effective === "Dark");
       set({ themeColor: newColor, lightnessMode: newLightness, palette: palette, uiScale: newScale });
     },
   };

@@ -13,11 +13,15 @@ import {
   Download,
   Link2,
   MoreVertical,
+  LogOut,
+  RefreshCw,
 } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import Button from "@/components/common/Button";
 import Input from "@/components/common/Input";
 import Select from "@/components/common/Select";
+import { tauriCommands } from "@/utils/tauri";
+import type { ConfigAccount } from "@/types";
 
 export default function PlayTab() {
   const {
@@ -35,6 +39,7 @@ export default function PlayTab() {
     setScreen,
     updateConfig,
     saveNotes,
+    addToast,
   } = useAppStore();
 
   const [notesExpanded, setNotesExpanded] = useState(false);
@@ -81,6 +86,50 @@ export default function PlayTab() {
       // Shell plugin may not be available in all environments
     }
   }, [selectedInstance]);
+
+  const isOffline = selectedAccount === "(Offline)";
+  const accountConfig = isOffline
+    ? null
+    : (config?.accounts?.[selectedAccount] as ConfigAccount | undefined);
+
+  const handleLogout = useCallback(async () => {
+    if (isOffline || !accountConfig) return;
+    try {
+      const accountType = accountConfig.account_type || "Microsoft";
+      await tauriCommands.logout_account(selectedAccount, accountType);
+      // Remove from config
+      const { accounts } = config || {};
+      if (accounts) {
+        const updated = { ...accounts };
+        delete updated[selectedAccount];
+        updateConfig({ accounts: updated, account_selected: "(Offline)" });
+      }
+      // Update store dropdown immediately
+      const newDropdown = [
+        "(Offline)",
+        ...Object.keys(config?.accounts || {}).filter((k) => k !== selectedAccount).sort(),
+        "+ Add Account",
+      ];
+      useAppStore.setState({
+        accountsDropdown: newDropdown,
+        selectedAccount: "(Offline)",
+      });
+      addToast(`Logged out ${selectedAccount}`, "info");
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : "Logout failed", "error");
+    }
+  }, [selectedAccount, accountConfig, config, isOffline, updateConfig, addToast]);
+
+  const handleRefresh = useCallback(async () => {
+    if (isOffline || !accountConfig) return;
+    try {
+      const accountType = accountConfig.account_type || "Microsoft";
+      await tauriCommands.refresh_account(selectedAccount, accountType);
+      addToast(`Refreshed ${selectedAccount}`, "success");
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : "Refresh failed", "error");
+    }
+  }, [selectedAccount, accountConfig, isOffline, addToast]);
 
   const accountOptions = accountsDropdown.map((a) => ({ value: a, label: a }));
 
@@ -146,16 +195,38 @@ export default function PlayTab() {
           <label className="block text-xs font-medium text-theme-text-muted mb-1">
             Account
           </label>
-          <Select
-            options={accountOptions}
-            value={selectedAccount}
-            onChange={(v) => {
-              setSelectedAccount(v);
-              if (v === "+ Add Account") {
-                setScreen({ type: "login" });
-              }
-            }}
-          />
+          <div className="flex gap-1.5">
+            <div className="flex-1">
+              <Select
+                options={accountOptions}
+                value={selectedAccount}
+                onChange={(v) => {
+                  setSelectedAccount(v);
+                  if (v === "+ Add Account") {
+                    setScreen({ type: "login" });
+                  }
+                }}
+              />
+            </div>
+            {!isOffline && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<RefreshCw className="w-3.5 h-3.5" />}
+                  onClick={handleRefresh}
+                  title="Refresh account"
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<LogOut className="w-3.5 h-3.5" />}
+                  onClick={handleLogout}
+                  title="Logout"
+                />
+              </>
+            )}
+          </div>
         </div>
 
         {/* Username Input */}
