@@ -34,7 +34,7 @@ interface AppState {
 
   loadInstances: () => Promise<void>;
   selectInstance: (name: string, kind: InstanceKind) => Promise<void>;
-  createInstance: (name: string, version: string, kind: string) => Promise<void>;
+  createInstance: (name: string, version: string, kind: string, listEntryKind: string, supportsServer: boolean) => Promise<void>;
   deleteInstance: (name: string, kind: string) => Promise<void>;
   renameInstance: (oldName: string, newName: string, kind: string) => Promise<void>;
 
@@ -76,6 +76,7 @@ interface AppState {
   updateInstanceConfig: (partial: Partial<InstanceConfigJson>) => Promise<void>;
 
   // Init
+  isInitialized: boolean;
   initialize: () => Promise<void>;
 
   // Toast
@@ -110,6 +111,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   runningInstances: new Set<string>(),
 
   logs: {},
+  isInitialized: false,
   toasts: [],
 
   setLaunchProgress: (progress) => set({ launchProgress: progress }),
@@ -122,9 +124,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   addToast: (message, type) => {
     const id = Math.random().toString(36).substring(2, 9);
     set((s) => ({ toasts: [...s.toasts, { id, message, type }] }));
-    setTimeout(() => {
-      get().removeToast(id);
-    }, 4000);
+    // Removal is handled by ToastItem component (self-managed lifecycle)
   },
 
   removeToast: (id) => {
@@ -162,8 +162,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  createInstance: async (name, version, kind) => {
-    await tauriCommands.create_instance(name, version, kind);
+  createInstance: async (name, version, kind, listEntryKind, supportsServer) => {
+    await tauriCommands.create_instance(name, version, kind, listEntryKind, supportsServer);
     await get().loadInstances();
     get().addToast(`Instance "${name}" created`, "success");
   },
@@ -460,5 +460,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
       unlisteners.push(unlistenExit);
     } catch { /* event not available */ }
+
+    // Mark initialization complete
+    set({ isInitialized: true });
   },
 }));

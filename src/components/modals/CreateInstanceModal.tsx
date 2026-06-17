@@ -1,10 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Search, Download, X, Filter } from "lucide-react";
+import { Search, Download, X, Filter, Upload, Info } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import Modal from "@/components/common/Modal";
 import Button from "@/components/common/Button";
 import Input from "@/components/common/Input";
-import ProgressBar from "@/components/common/ProgressBar";
 import { tauriCommands } from "@/utils/tauri";
 import type { ListEntry, ListEntryKind } from "@/types";
 
@@ -25,6 +24,8 @@ export default function CreateInstanceModal() {
   const screen = useAppStore((s) => s.screen);
   const setScreen = useAppStore((s) => s.setScreen);
   const createInstance = useAppStore((s) => s.createInstance);
+  const loadInstances = useAppStore((s) => s.loadInstances);
+  const addToast = useAppStore((s) => s.addToast);
   const config = useAppStore((s) => s.config);
 
   const [versions, setVersions] = useState<ListEntry[]>([]);
@@ -37,6 +38,7 @@ export default function CreateInstanceModal() {
   const [instanceName, setInstanceName] = useState("");
   const [instanceKind, setInstanceKind] = useState<string>("Client");
   const [isCreating, setIsCreating] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const open = screen.type === "create_instance";
@@ -88,17 +90,53 @@ export default function CreateInstanceModal() {
 
   const handleCreate = useCallback(async () => {
     if (!selectedVersion || !instanceName.trim()) return;
+    const versionEntry = versions.find((v) => v.name === selectedVersion);
+    if (!versionEntry) return;
     setIsCreating(true);
     setError(null);
     try {
-      await createInstance(instanceName.trim(), selectedVersion, instanceKind);
+      await createInstance(
+        instanceName.trim(),
+        selectedVersion,
+        instanceKind,
+        versionEntry.kind,
+        versionEntry.supports_server
+      );
       setScreen({ type: "main" });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setIsCreating(false);
     }
-  }, [selectedVersion, instanceName, instanceKind, createInstance, setScreen]);
+  }, [selectedVersion, versions, instanceName, instanceKind, createInstance, setScreen]);
+
+  const handleImport = useCallback(async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
+        title: "Select instance to import",
+        filters: [
+          { name: "Instance archives", extensions: ["zip"] },
+          { name: "All files", extensions: ["*"] },
+        ],
+        multiple: false,
+      });
+      if (!selected) return;
+
+      const path = Array.isArray(selected) ? selected[0] : selected;
+      setIsImporting(true);
+      setError(null);
+
+      const name = await tauriCommands.import_instance(path);
+      await loadInstances();
+      addToast(`Instance "${name}" imported`, "success");
+      setScreen({ type: "main" });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsImporting(false);
+    }
+  }, [loadInstances, addToast, setScreen]);
 
   const handleClose = useCallback(() => {
     setScreen({ type: "main" });
@@ -189,8 +227,11 @@ export default function CreateInstanceModal() {
                   <div className="animate-spin w-6 h-6 border-2 border-theme-mid border-t-transparent rounded-full" />
                 </div>
               ) : filteredVersions.length === 0 ? (
-                <div className="flex items-center justify-center h-full text-sm text-theme-text-muted">
-                  No versions found
+                <div className="flex flex-col items-center justify-center h-full gap-2">
+                  <p className="text-sm text-theme-text-muted">No versions found</p>
+                  <p className="text-xs text-theme-text-muted">
+                    Try adjusting your filters or search query
+                  </p>
                 </div>
               ) : (
                 filteredVersions.map((v) => (
@@ -217,12 +258,28 @@ export default function CreateInstanceModal() {
           </div>
         </div>
 
-        {/* Bottom: Create button */}
+        {/* Bottom: Actions */}
         <div className="p-4 border-t border-theme-second-dark flex items-center justify-between">
-          <div className="text-xs text-theme-text-muted">
-            {selectedVersion && `Selected: ${selectedVersion}`}
+          <div className="flex items-center gap-3">
+            <div className="text-xs text-theme-text-muted">
+              {selectedVersion ? (
+                <span>Selected: <span className="text-theme-text">{selectedVersion}</span></span>
+              ) : (
+                <span className="text-theme-text-muted/60">No version selected</span>
+              )}
+            </div>
           </div>
           <div className="flex gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Upload className="w-3.5 h-3.5" />}
+              onClick={handleImport}
+              loading={isImporting}
+              title="Import from MultiMC/Prism/QuantumLauncher archive"
+            >
+              Import
+            </Button>
             <Button variant="ghost" onClick={handleClose}>
               Cancel
             </Button>

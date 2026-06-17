@@ -17,9 +17,19 @@ import ChangelogModal from "@/components/modals/ChangelogModal";
 import ShortcutModal from "@/components/modals/ShortcutModal";
 import Toast from "@/components/common/Toast";
 
+function SplashScreen() {
+  return (
+    <div className="w-full h-full bg-theme-background flex flex-col items-center justify-center gap-4">
+      <div className="w-8 h-8 border-2 border-theme-mid/30 border-t-theme-mid rounded-full animate-spin" />
+      <p className="text-sm text-theme-text-muted">Loading...</p>
+    </div>
+  );
+}
+
 export default function App() {
   const screen = useAppStore((s) => s.screen);
   const config = useAppStore((s) => s.config);
+  const isInitialized = useAppStore((s) => s.isInitialized);
   const initialize = useAppStore((s) => s.initialize);
   const applyFromConfig = useThemeStore((s) => s.applyFromConfig);
 
@@ -36,7 +46,7 @@ export default function App() {
     });
   }, [initialize, applyFromConfig]);
 
-  // Onboarding check
+  // Onboarding check (shown before main init completes for new users)
   if (screen.type === "onboarding") {
     return (
       <div className="w-full h-full bg-theme-background">
@@ -64,6 +74,11 @@ export default function App() {
         </div>
       </div>
     );
+  }
+
+  // Show splash screen while initializing
+  if (!isInitialized) {
+    return <SplashScreen />;
   }
 
   return (

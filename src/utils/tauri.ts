@@ -46,8 +46,8 @@ export const tauriCommands = {
   get_server_instances: () => handleInvoke<string[]>("get_server_instances"),
 
   // Instance management
-  create_instance: (name: string, version: string, kind: string) =>
-    handleInvoke<void>("create_instance", { name, version, kind }),
+  create_instance: (name: string, version: string, kind: string, listEntryKind: string, supportsServer: boolean) =>
+    handleInvoke<string>("create_instance", { name, version, kind, list_entry_kind: listEntryKind, supports_server: supportsServer }),
   delete_instance: (name: string, kind: string) =>
     handleInvoke<void>("delete_instance", { name, kind }),
   rename_instance: (oldName: string, newName: string, kind: string) =>

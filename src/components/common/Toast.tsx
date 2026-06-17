@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Check, X, AlertTriangle, Info, AlertCircle } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 
@@ -18,6 +18,9 @@ const bgColors: Record<ToastType, string> = {
   info: "bg-theme-mid/20 border-theme-mid/40 text-theme-mid",
 };
 
+const DURATION = 4000;
+const EXIT_ANIM_MS = 200;
+
 function ToastItem({
   id,
   message,
@@ -28,17 +31,25 @@ function ToastItem({
   type: ToastType;
 }) {
   const [progress, setProgress] = useState(100);
+  const [exiting, setExiting] = useState(false);
   const removeToast = useAppStore((s) => s.removeToast);
+
+  const dismiss = useCallback(() => {
+    if (exiting) return;
+    setExiting(true);
+    setTimeout(() => removeToast(id), EXIT_ANIM_MS);
+  }, [id, exiting, removeToast]);
 
   useEffect(() => {
     const startTime = Date.now();
-    const duration = 4000;
     const interval = setInterval(() => {
       const elapsed = Date.now() - startTime;
-      setProgress(Math.max(0, 100 - (elapsed / duration) * 100));
-      if (elapsed >= duration) {
+      setProgress(Math.max(0, 100 - (elapsed / DURATION) * 100));
+      if (elapsed >= DURATION) {
         clearInterval(interval);
-        removeToast(id);
+        // Trigger exit animation, then remove
+        setExiting(true);
+        setTimeout(() => removeToast(id), EXIT_ANIM_MS);
       }
     }, 50);
     return () => clearInterval(interval);
@@ -47,8 +58,13 @@ function ToastItem({
   return (
     <div
       className={`
-        flex items-start gap-2.5 px-3 py-2.5 rounded-lg border
-        shadow-lg backdrop-blur-sm animate-slide-up
+        relative flex items-start gap-2.5 px-3 py-2.5 rounded-lg border
+        shadow-lg backdrop-blur-sm
+        transition-all duration-200
+        ${exiting
+          ? "opacity-0 translate-x-4 scale-95"
+          : "opacity-100 translate-x-0 scale-100 animate-slide-up"
+        }
         ${bgColors[type]}
       `}
     >
@@ -57,7 +73,7 @@ function ToastItem({
         <p className="text-sm leading-snug">{message}</p>
       </div>
       <button
-        onClick={() => removeToast(id)}
+        onClick={dismiss}
         className="flex-shrink-0 p-0.5 rounded opacity-60 hover:opacity-100 transition-opacity"
       >
         <X className="w-3.5 h-3.5" />
@@ -78,7 +94,7 @@ export default function Toast() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
+    <div className="fixed bottom-4 right-4 z-[100] flex flex-col-reverse gap-2 max-w-sm">
       {toasts.map((toast) => (
         <ToastItem key={toast.id} id={toast.id} message={toast.message} type={toast.type} />
       ))}
