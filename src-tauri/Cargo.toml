@@ -1,0 +1,41 @@
+[package]
+name = "pk_launcher"
+version = "0.5.2"
+edition = "2024"
+rust-version = "1.85"
+description = "PK Launcher - A Minecraft launcher built with Tauri"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [
+    "devtools",
+] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+serde = { workspace = true, features = ["derive", "rc"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+reqwest = { workspace = true }
+dirs = { workspace = true }
+base64 = "0.22"
+
+# Internal crates
+ql_core = { path = "../crates/ql_core" }
+ql_instances = { path = "../crates/ql_instances" }
+ql_java_handler = { path = "../crates/ql_java_handler" }
+ql_mod_manager = { path = "../crates/ql_mod_manager" }
+ql_servers = { path = "../crates/ql_servers" }
+ql_packager = { path = "../crates/ql_packager" }
+ezshortcut = { path = "../crates/ezshortcut" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service", "vendored"] }
+[target.'cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service"] }

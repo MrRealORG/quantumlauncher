@@ -1,0 +1,54 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nickelpack/tauri/dev/core/tauri-config-schema/schema.json",
+  "productName": "PK Launcher",
+  "version": "0.5.2",
+  "identifier": "io.github.mrrealorg.pklauncher",
+  "build": {
+    "frontendDist": "../src",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "title": "PK Launcher",
+        "width": 600,
+        "height": 400,
+        "minWidth": 420,
+        "minHeight": 310,
+        "transparent": true,
+        "center": true,
+        "decorations": true,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "../../assets/icon/ql_logo.ico",
+      "../../assets/icon/32x32/ql_logo.png",
+      "../../assets/icon/128x128/ql_logo.png",
+      "../../assets/icon/256x256/ql_logo.png",
+      "../../assets/icon/512x512/ql_logo.png"
+    ],
+    "resources": [],
+    "copyright": "",
+    "category": "Game",
+    "shortDescription": "PK Launcher - A Minecraft Launcher",
+    "longDescription": "PK Launcher is a feature-rich Minecraft launcher supporting mod management, multiple accounts, and more.",
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "",
+      "wix": null,
+      "nsis": null
+    }
+  }
+}

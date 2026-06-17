@@ -15,7 +15,7 @@ use zip::{ZipArchive, ZipWriter, write::FileOptions};
 
 use crate::{IntoIoError, JsonDownloadError, download, error::IoError};
 
-/// The path to the QuantumLauncher root folder.
+/// The path to the PK Launcher root folder.
 ///
 /// This uses the current dir or executable location (portable mode)
 /// if a `qldir.txt` is found, otherwise it uses the system data dir:
@@ -32,12 +32,12 @@ use crate::{IntoIoError, JsonDownloadError, download, error::IoError};
 #[allow(clippy::doc_markdown)]
 pub static LAUNCHER_DIR: LazyLock<PathBuf> = LazyLock::new(|| get_launcher_dir().unwrap());
 
-/// The path to the QuantumLauncher cache folder.
+/// The path to the PK Launcher cache folder.
 #[allow(clippy::doc_markdown)]
 pub static LAUNCHER_CACHE_DIR: LazyLock<PathBuf> =
     LazyLock::new(|| get_launcher_cache_dir().unwrap());
 
-/// Returns the path to the QuantumLauncher root folder.
+/// Returns the path to the PK Launcher root folder.
 ///
 /// This uses the current dir or executable location (portable mode)
 /// if a `qldir.txt` is found, otherwise it uses the system data dir:
@@ -58,19 +58,19 @@ pub fn get_launcher_dir() -> Result<PathBuf, IoError> {
     } else {
         dirs::data_dir()
             .ok_or(IoError::LauncherDirNotFound)?
-            .join("QuantumLauncher")
+            .join("PKLauncher")
     };
 
     std::fs::create_dir_all(&launcher_directory).path(&launcher_directory)?;
     Ok(launcher_directory)
 }
 
-/// Returns the path to the cache directory for downloadables for QuantumLauncher.
+/// Returns the path to the cache directory for downloadables for PK Launcher.
 ///
 /// This uses `dirs::cache_dir()` as the highest-priority choice:
-/// - `$XDG_CACHE_HOME/QuantumLauncher` or `$HOME/.cache/QuantumLauncher` on Linux
-/// - `$HOME/Library/Caches/QuantumLauncher` on macOS
-/// - `{FOLDERID_LocalAppData}\QuantumLauncher` on Windows
+/// - `$XDG_CACHE_HOME/PKLauncher` or `$HOME/.cache/PKLauncher` on Linux
+/// - `$HOME/Library/Caches/PKLauncher` on macOS
+/// - `{FOLDERID_LocalAppData}\PKLauncher` on Windows
 ///
 /// If unavailable, this resorts to:
 /// - `$LAUNCHER_DIR/downloads/cache`
@@ -81,7 +81,7 @@ pub fn get_launcher_dir() -> Result<PathBuf, IoError> {
 /// - if the cache directory could not be created (permissions issue)
 pub fn get_launcher_cache_dir() -> Result<PathBuf, IoError> {
     let cache_dir = dirs::cache_dir()
-        .map(|n| n.join("QuantumLauncher"))
+        .map(|n| n.join("PKLauncher"))
         .filter(|n| *n != *LAUNCHER_DIR) // Don't want to accidentally put cache in our root dir
         .unwrap_or_else(|| LAUNCHER_DIR.join("downloads/cache"));
 
@@ -113,8 +113,8 @@ fn check_qlportable_file() -> Option<QlDirInfo> {
             .ok()
             .and_then(|exe| exe.parent().map(Path::to_owned)),
         std::env::current_dir().ok(),
-        dirs::data_dir().map(|d| d.join("QuantumLauncher")),
-        dirs::config_dir().map(|d| d.join("QuantumLauncher")),
+        dirs::data_dir().map(|d| d.join("PKLauncher")),
+        dirs::config_dir().map(|d| d.join("PKLauncher")),
     ];
 
     for (i, place) in places
@@ -164,7 +164,7 @@ fn check_qlportable_file() -> Option<QlDirInfo> {
 
         return Some(if join_dir {
             QlDirInfo {
-                path: path.join("QuantumLauncher"),
+                path: path.join("PKLauncher"),
             }
         } else {
             QlDirInfo { path }
@@ -174,7 +174,7 @@ fn check_qlportable_file() -> Option<QlDirInfo> {
     None
 }
 
-/// Returns whether the user is new to QuantumLauncher,
+/// Returns whether the user is new to PK Launcher,
 /// i.e. whether they have never used the launcher before.
 ///
 /// It checks whether the launcher directory does not exist.
@@ -184,7 +184,7 @@ pub fn is_new_user() -> bool {
     let Some(data_directory) = dirs::data_dir() else {
         return false;
     };
-    let launcher_directory = data_directory.join("QuantumLauncher");
+    let launcher_directory = data_directory.join("PKLauncher");
     !launcher_directory.exists()
 }
 
