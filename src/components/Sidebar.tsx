@@ -9,15 +9,74 @@ import {
   Trash2,
   Pencil,
   FolderPlus,
-  MoreHorizontal,
   XCircle,
 } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import ContextMenu from "@/components/common/ContextMenu";
-import type { SidebarNode, SidebarNodeKind, SidebarFolder, InstanceKind } from "@/types";
+import type { SidebarNode, SidebarFolder, InstanceKind } from "@/types";
 import ConfirmModal from "@/components/modals/ConfirmModal";
 
 const SIDEBAR_DEFAULT_WIDTH = 0.33;
+
+/** Recursively remove a folder by id, promoting its children to the parent level */
+function removeFolderById(list: SidebarNode[], folderId: string): SidebarNode[] {
+  const result: SidebarNode[] = [];
+  for (const node of list) {
+    if (node.kind.type === "folder") {
+      const f = (node.kind as { type: "folder"; folder: SidebarFolder }).folder;
+      if (f.id === folderId) {
+        // Promote children to parent level
+        result.push(...f.children);
+        continue;
+      }
+      // Recurse into children
+      const newChildren = removeFolderById(f.children, folderId);
+      result.push({
+        ...node,
+        kind: { type: "folder", folder: { ...f, children: newChildren } },
+      });
+    } else {
+      result.push(node);
+    }
+  }
+  return result;
+}
+
+/** Recursively rename a folder by id */
+function renameFolderById(list: SidebarNode[], folderId: string, newName: string): SidebarNode[] {
+  return list.map((node) => {
+    if (node.kind.type === "folder") {
+      const f = (node.kind as { type: "folder"; folder: SidebarFolder }).folder;
+      return {
+        ...node,
+        name: f.id === folderId ? newName : node.name,
+        kind: {
+          type: "folder",
+          folder: {
+            ...f,
+            children: renameFolderById(f.children, folderId, newName),
+          },
+        },
+      };
+    }
+    return node;
+  });
+}
+
+/** Find folder id by its display name (first match) */
+function findFolderIdByName(list: SidebarNode[], name: string): string | null {
+  for (const node of list) {
+    if (node.kind.type === "folder" && node.name === name) {
+      return (node.kind as { type: "folder"; folder: SidebarFolder }).folder.id;
+    }
+    if (node.kind.type === "folder") {
+      const f = (node.kind as { type: "folder"; folder: SidebarFolder }).folder;
+      const found = findFolderIdByName(f.children, name);
+      if (found) return found;
+    }
+  }
+  return null;
+}
 
 export default function Sidebar() {
   const {
@@ -41,13 +100,19 @@ export default function Sidebar() {
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
-    type: "instance" | "folder";
+    type: "instance" | "folder" | "empty";
     name: string;
     kind?: InstanceKind;
+    folderId?: string;
   } | null>(null);
-  const [renameState, setRenameState] = useState<string | null>(null);
+  const [renameState, setRenameState] = useState<{ name: string; isFolder: boolean } | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState<{ name: string; kind: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{
+    name: string;
+    kind: string;
+    isFolder?: boolean;
+    folderId?: string;
+  } | null>(null);
   const resizeRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
@@ -88,32 +153,60 @@ export default function Sidebar() {
   );
 
   const handleContextMenu = useCallback(
-    (e: React.MouseEvent, name: string, kind: InstanceKind, type: "instance" | "folder") => {
+    (
+      e: React.MouseEvent,
+      name: string,
+      type: "instance" | "folder" | "empty",
+      kind?: InstanceKind,
+      folderId?: string
+    ) => {
       e.preventDefault();
       e.stopPropagation();
-      setContextMenu({ x: e.clientX, y: e.clientY, type, name, kind });
+      setContextMenu({ x: e.clientX, y: e.clientY, type, name, kind, folderId });
     },
     []
   );
 
-  const handleStartRename = useCallback((name: string) => {
-    setRenameState(name);
+  const handleStartRename = useCallback((name: string, isFolder = false) => {
+    setRenameState({ name, isFolder });
     setRenameValue(name);
     setTimeout(() => renameInputRef.current?.focus(), 50);
   }, []);
 
   const handleConfirmRename = useCallback(async () => {
-    if (renameState && renameValue.trim() && renameValue.trim() !== renameState) {
+    if (!renameState || !renameValue.trim()) {
+      setRenameState(null);
+      return;
+    }
+    const newName = renameValue.trim();
+    if (newName === renameState.name) {
+      setRenameState(null);
+      return;
+    }
+
+    if (renameState.isFolder && sidebarConfig) {
+      // Rename folder in sidebar config
+      const folderId = findFolderIdByName(sidebarConfig.list, renameState.name);
+      if (folderId) {
+        const updated = { list: renameFolderById(sidebarConfig.list, folderId, newName) };
+        await saveSidebar(updated);
+      }
+    } else {
+      // Rename instance
       const kind =
-        clientInstances.includes(renameState) ? "Client" : serverInstances.includes(renameState) ? "Server" : "Client";
+        clientInstances.includes(renameState.name)
+          ? "Client"
+          : serverInstances.includes(renameState.name)
+            ? "Server"
+            : "Client";
       try {
-        await renameInstance(renameState, renameValue.trim(), kind);
+        await renameInstance(renameState.name, newName, kind);
       } catch {
         addToast("Failed to rename instance", "error");
       }
     }
     setRenameState(null);
-  }, [renameState, renameValue, clientInstances, serverInstances, renameInstance, addToast]);
+  }, [renameState, renameValue, sidebarConfig, saveSidebar, clientInstances, serverInstances, renameInstance, addToast]);
 
   // Resize handling
   const handleResizeStart = useCallback(
@@ -142,33 +235,59 @@ export default function Sidebar() {
     [sidebarWidth]
   );
 
-  const handleNewFolder = useCallback(async () => {
-    if (!sidebarConfig) return;
-    const newFolder: SidebarNode = {
-      name: "New Folder",
-      kind: {
-        type: "folder",
-        folder: { id: crypto.randomUUID(), children: [], is_expanded: true },
-      },
-    };
-    const updated = { list: [...sidebarConfig.list, newFolder] };
-    await saveSidebar(updated);
-    handleStartRename("New Folder");
-  }, [sidebarConfig, saveSidebar, handleStartRename]);
+  const handleNewFolder = useCallback(
+    async (insertIndex?: number) => {
+      if (!sidebarConfig) return;
+      const newFolder: SidebarNode = {
+        name: "New Folder",
+        kind: {
+          type: "folder",
+          folder: { id: crypto.randomUUID(), children: [], is_expanded: true },
+        },
+      };
+      const list = [...sidebarConfig.list];
+      if (insertIndex !== undefined) {
+        list.splice(insertIndex + 1, 0, newFolder);
+      } else {
+        list.push(newFolder);
+      }
+      const updated = { list };
+      await saveSidebar(updated);
+      handleStartRename("New Folder", true);
+    },
+    [sidebarConfig, saveSidebar, handleStartRename]
+  );
 
   const handleDeleteInstance = useCallback(async () => {
     if (!confirmDelete) return;
-    try {
-      await deleteInstance(confirmDelete.name, confirmDelete.kind);
-    } catch {
-      addToast("Failed to delete instance", "error");
+
+    if (confirmDelete.isFolder && confirmDelete.folderId && sidebarConfig) {
+      // Delete folder — children promoted to parent level
+      const updated = { list: removeFolderById(sidebarConfig.list, confirmDelete.folderId) };
+      await saveSidebar(updated);
+      addToast(`Folder "${confirmDelete.name}" deleted`, "info");
+    } else {
+      try {
+        await deleteInstance(confirmDelete.name, confirmDelete.kind);
+      } catch {
+        addToast("Failed to delete instance", "error");
+      }
     }
     setConfirmDelete(null);
-  }, [confirmDelete, deleteInstance, addToast]);
+  }, [confirmDelete, sidebarConfig, saveSidebar, deleteInstance, addToast]);
+
+  const handleEmptySpaceContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      handleContextMenu(e, "", "empty");
+    },
+    [handleContextMenu]
+  );
 
   const renderNode = (node: SidebarNode, depth: number = 0) => {
     if (node.kind.type === "folder") {
       const folder = (node.kind as { type: "folder"; folder: SidebarFolder }).folder;
+      const isRenaming = renameState?.isFolder && renameState?.name === node.name;
+
       return (
         <div key={`folder-${folder.id}`}>
           <div
@@ -193,7 +312,7 @@ export default function Sidebar() {
               });
               saveSidebar(updated);
             }}
-            onContextMenu={(e) => handleContextMenu(e, node.name, "Client", "folder")}
+            onContextMenu={(e) => handleContextMenu(e, node.name, "folder", undefined, folder.id)}
           >
             {folder.is_expanded ? (
               <ChevronDown className="w-3.5 h-3.5 text-theme-text-muted flex-shrink-0" />
@@ -201,10 +320,24 @@ export default function Sidebar() {
               <ChevronRight className="w-3.5 h-3.5 text-theme-text-muted flex-shrink-0" />
             )}
             <FolderOpen className="w-3.5 h-3.5 text-theme-mid flex-shrink-0" />
-            <span className="text-sm text-theme-text truncate flex-1">{node.name}</span>
+            {isRenaming ? (
+              <input
+                ref={renameInputRef}
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onBlur={handleConfirmRename}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleConfirmRename();
+                  if (e.key === "Escape") setRenameState(null);
+                }}
+                className="flex-1 bg-theme-dark border border-theme-mid text-theme-text text-sm rounded px-1.5 py-0 outline-none min-w-0"
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span className="text-sm text-theme-text truncate flex-1">{node.name}</span>
+            )}
           </div>
-          {folder.is_expanded &&
-            folder.children.map((child) => renderNode(child, depth + 1))}
+          {folder.is_expanded && folder.children.map((child) => renderNode(child, depth + 1))}
         </div>
       );
     }
@@ -212,7 +345,7 @@ export default function Sidebar() {
     const kind = node.kind.kind;
     const name = node.name;
     const selected = isSelected(name, kind);
-    const isRenaming = renameState === name;
+    const isRenaming = !renameState?.isFolder && renameState?.name === name;
     const isRunning = runningInstances.has(name);
 
     return (
@@ -225,7 +358,7 @@ export default function Sidebar() {
         `}
         style={{ paddingLeft: `${8 + depth * 16}px` }}
         onClick={() => !isRenaming && selectInstance(name, kind)}
-        onContextMenu={(e) => handleContextMenu(e, name, kind, "instance")}
+        onContextMenu={(e) => handleContextMenu(e, name, "instance", kind)}
       >
         {kind === "Server" ? (
           <Server className="w-3.5 h-3.5 text-theme-mid flex-shrink-0" />
@@ -255,6 +388,80 @@ export default function Sidebar() {
     );
   };
 
+  // Build context menu items based on what was right-clicked
+  const contextMenuItems = useMemo(() => {
+    if (!contextMenu) return [];
+    const items: SidebarContextMenuEntry[] = [];
+
+    if (contextMenu.type === "instance") {
+      // Instance context menu
+      if (runningInstances.has(contextMenu.name) && contextMenu.kind) {
+        items.push({
+          label: "Kill Process",
+          icon: <XCircle className="w-4 h-4" />,
+          onClick: () => {
+            killGame(contextMenu.name, contextMenu.kind!);
+          },
+        });
+        items.push({ separator: true });
+      }
+      items.push({
+        label: "Rename",
+        icon: <Pencil className="w-4 h-4" />,
+        onClick: () => {
+          handleStartRename(contextMenu.name, false);
+        },
+      });
+      items.push({ separator: true });
+      items.push({
+        label: "Delete",
+        icon: <Trash2 className="w-4 h-4" />,
+        danger: true,
+        onClick: () => {
+          if (contextMenu.kind) {
+            setConfirmDelete({ name: contextMenu.name, kind: contextMenu.kind });
+          }
+        },
+      });
+    } else if (contextMenu.type === "folder") {
+      // Folder context menu
+      items.push({
+        label: "Rename",
+        icon: <Pencil className="w-4 h-4" />,
+        onClick: () => {
+          handleStartRename(contextMenu.name, true);
+        },
+      });
+      items.push({ separator: true });
+      items.push({
+        label: "Delete Folder",
+        icon: <Trash2 className="w-4 h-4" />,
+        danger: true,
+        onClick: () => {
+          if (contextMenu.folderId) {
+            setConfirmDelete({
+              name: contextMenu.name,
+              kind: "Client",
+              isFolder: true,
+              folderId: contextMenu.folderId,
+            });
+          }
+        },
+      });
+    } else if (contextMenu.type === "empty") {
+      // Empty space context menu
+      items.push({
+        label: "New Folder",
+        icon: <FolderPlus className="w-4 h-4" />,
+        onClick: () => {
+          handleNewFolder();
+        },
+      });
+    }
+
+    return items;
+  }, [contextMenu, runningInstances, killGame, handleStartRename, handleNewFolder]);
+
   return (
     <>
       <div
@@ -262,7 +469,10 @@ export default function Sidebar() {
         style={{ width: `${sidebarWidth * 100}%` }}
       >
         {/* Client Section */}
-        <div className="flex-1 overflow-y-auto py-2 px-1.5">
+        <div
+          className="flex-1 overflow-y-auto py-2 px-1.5"
+          onContextMenu={handleEmptySpaceContextMenu}
+        >
           <div className="mb-1">
             <div className="flex items-center gap-1.5 px-2 py-1 mb-0.5">
               <Monitor className="w-3.5 h-3.5 text-theme-text-muted" />
@@ -304,7 +514,7 @@ export default function Sidebar() {
             New Instance
           </button>
           <button
-            onClick={handleNewFolder}
+            onClick={() => handleNewFolder()}
             className="flex items-center justify-center px-2 py-1.5 text-theme-text-muted hover:text-theme-text hover:bg-theme-second-dark/40 rounded-md transition-colors"
             title="New Folder"
           >
@@ -325,40 +535,7 @@ export default function Sidebar() {
         <ContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
-          items={[
-            ...(runningInstances.has(contextMenu.name) && contextMenu.kind
-              ? [
-                  {
-                    label: "Kill Process",
-                    icon: <XCircle className="w-4 h-4" />,
-                    onClick: () => {
-                      killGame(contextMenu.name, contextMenu.kind!);
-                    },
-                  },
-                  { separator: true as const },
-                ]
-              : []),
-            {
-              label: "Rename",
-              icon: <Pencil className="w-4 h-4" />,
-              onClick: () => {
-                if (contextMenu.type === "instance") {
-                  handleStartRename(contextMenu.name);
-                }
-              },
-            },
-            { separator: true },
-            {
-              label: "Delete",
-              icon: <Trash2 className="w-4 h-4" />,
-              danger: true,
-              onClick: () => {
-                if (contextMenu.type === "instance" && contextMenu.kind) {
-                  setConfirmDelete({ name: contextMenu.name, kind: contextMenu.kind });
-                }
-              },
-            },
-          ]}
+          items={contextMenuItems}
           onClose={() => setContextMenu(null)}
         />
       )}
@@ -366,10 +543,12 @@ export default function Sidebar() {
       {/* Confirm Delete */}
       <ConfirmModal
         open={confirmDelete !== null}
-        title="Delete Instance"
+        title={confirmDelete?.isFolder ? "Delete Folder" : "Delete Instance"}
         message={
           confirmDelete
-            ? `Are you sure you want to delete "${confirmDelete.name}"? This cannot be undone.`
+            ? confirmDelete.isFolder
+              ? `Are you sure you want to delete folder "${confirmDelete.name}"? Its instances will be moved out.`
+              : `Are you sure you want to delete "${confirmDelete.name}"? This cannot be undone.`
             : ""
         }
         onConfirm={handleDeleteInstance}
@@ -378,3 +557,18 @@ export default function Sidebar() {
     </>
   );
 }
+
+// Context menu item types (matching ContextMenu component)
+interface SidebarContextMenuItem {
+  label: string;
+  icon?: React.ReactNode;
+  onClick: () => void;
+  danger?: boolean;
+  separator?: false;
+}
+
+interface SidebarContextMenuSeparator {
+  separator: true;
+}
+
+type SidebarContextMenuEntry = SidebarContextMenuItem | SidebarContextMenuSeparator;

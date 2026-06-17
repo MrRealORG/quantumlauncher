@@ -171,6 +171,10 @@ export const tauriCommands = {
   // Changelog
   get_changelog: () => handleInvoke<string>("get_changelog"),
 
+  // Server
+  send_server_command: (name: string, command: string) =>
+    handleInvoke<boolean>("send_server_command", { name, command }),
+
   // Launcher info
   get_launcher_version: () => handleInvoke<string>("get_launcher_version"),
 };

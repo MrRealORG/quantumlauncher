@@ -285,6 +285,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         next.add(selectedInstance.name);
         return { runningInstances: next };
       });
+
+      // Apply after-launch behavior
+      const afterBehavior = config?.ui?.after_game_opens || "do_nothing";
+      if (afterBehavior === "close_launcher") {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        await getCurrentWindow().close();
+      } else if (afterBehavior === "minimize_launcher") {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        await getCurrentWindow().minimize();
+      }
     } catch (err) {
       console.error("Failed to launch game:", err);
       get().addToast("Failed to launch game", "error");
