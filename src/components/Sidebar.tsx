@@ -10,6 +10,7 @@ import {
   Pencil,
   FolderPlus,
   XCircle,
+  FolderSymlink,
 } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import ContextMenu from "@/components/common/ContextMenu";
@@ -283,6 +284,18 @@ export default function Sidebar() {
     [handleContextMenu]
   );
 
+  const handleOpenFolder = useCallback(async (name: string, kind: InstanceKind) => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-shell");
+      const { appDataDir } = await import("@tauri-apps/api/path");
+      const dataDir = await appDataDir();
+      const subDir = kind === "Client" ? "instances" : "servers";
+      await open(`${dataDir}QuantumLauncher/${subDir}/${name}`);
+    } catch {
+      addToast("Failed to open folder", "error");
+    }
+  }, [addToast]);
+
   const renderNode = (node: SidebarNode, depth: number = 0) => {
     if (node.kind.type === "folder") {
       const folder = (node.kind as { type: "folder"; folder: SidebarFolder }).folder;
@@ -406,6 +419,13 @@ export default function Sidebar() {
         items.push({ separator: true });
       }
       items.push({
+        label: "Open Folder",
+        icon: <FolderSymlink className="w-4 h-4" />,
+        onClick: () => {
+          if (contextMenu.kind) handleOpenFolder(contextMenu.name, contextMenu.kind);
+        },
+      });
+      items.push({
         label: "Rename",
         icon: <Pencil className="w-4 h-4" />,
         onClick: () => {
@@ -460,7 +480,7 @@ export default function Sidebar() {
     }
 
     return items;
-  }, [contextMenu, runningInstances, killGame, handleStartRename, handleNewFolder]);
+  }, [contextMenu, runningInstances, killGame, handleStartRename, handleNewFolder, handleOpenFolder]);
 
   return (
     <>

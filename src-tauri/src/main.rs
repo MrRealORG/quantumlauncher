@@ -68,6 +68,7 @@ pub fn run() {
             commands::instance::get_instance_notes,
             commands::instance::save_instance_notes,
             commands::instance::get_version_list,
+            commands::instance::redownload_instance_stage,
             // Auth commands
             commands::auth::get_accounts,
             commands::auth::login_microsoft,

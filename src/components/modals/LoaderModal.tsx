@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { useAppStore } from "@/stores/appStore";
 import Modal from "@/components/common/Modal";
 import Button from "@/components/common/Button";
@@ -32,9 +33,22 @@ export default function LoaderModal() {
   const [uninstalling, setUninstalling] = useState(false);
 
   const open = screen.type === "loader";
-  const handleClose = useCallback(() => setScreen({ type: "main" }), [setScreen]);
+  const handleClose = useCallback(() => {
+    if (!installing && !uninstalling) setScreen({ type: "main" });
+  }, [setScreen, installing, uninstalling]);
 
   const currentLoader = instanceConfig?.mod_type || "Vanilla";
+
+  // Listen for generic-progress events (emitted by install_loader backend)
+  useEffect(() => {
+    if (!installing) return;
+    const unlisten = listen<GenericProgress>("generic-progress", (event) => {
+      setProgress(event.payload);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [installing]);
 
   // Load versions when loader changes
   useEffect(() => {
@@ -55,15 +69,27 @@ export default function LoaderModal() {
   const handleInstall = useCallback(async () => {
     if (!selectedInstance || !selectedVersion) return;
     setInstalling(true);
-    setProgress({ done: 0, total: 1, has_finished: false });
+    setProgress({ done: 0, total: 1, has_finished: false, message: "Starting installation..." });
     try {
-      await tauriCommands.install_loader(selectedInstance.name, selectedInstance.kind, selectedLoader, selectedVersion);
+      const result = await tauriCommands.install_loader(
+        selectedInstance.name,
+        selectedInstance.kind,
+        selectedLoader,
+        selectedVersion,
+      );
       setProgress({ done: 1, total: 1, has_finished: true, message: "Installed!" });
-      addToast(`${selectedLoader} ${selectedVersion} installed`, "success");
+      const label = `${selectedLoader} ${selectedVersion}`;
+      // The backend may return "NeedsOptifine" status
+      if (result === "NeedsOptifine") {
+        addToast(`${label} installed — OptiFine also required`, "warning");
+      } else {
+        addToast(`${label} installed`, "success");
+      }
       // Refresh instance config
       const config = await tauriCommands.get_instance_config(selectedInstance.name, selectedInstance.kind);
       useAppStore.getState().instanceConfig && useAppStore.setState({ instanceConfig: config });
     } catch (e) {
+      setProgress((prev) => prev ? { ...prev, has_finished: true, message: "Installation failed" } : null);
       addToast(e instanceof Error ? e.message : "Installation failed", "error");
     } finally {
       setInstalling(false);
@@ -84,6 +110,18 @@ export default function LoaderModal() {
       setUninstalling(false);
     }
   }, [selectedInstance, addToast]);
+
+  // Clear progress after a short delay when finished
+  const progressDone = progress?.has_finished;
+  const progressTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    if (progressDone) {
+      progressTimerRef.current = setTimeout(() => setProgress(null), 3000);
+    }
+    return () => {
+      if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
+    };
+  }, [progressDone]);
 
   return (
     <Modal open={open} onClose={handleClose} title="Mod Loader">

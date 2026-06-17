@@ -157,6 +157,10 @@ export const tauriCommands = {
   // Version list
   get_version_list: () => handleInvoke<VersionListResult>("get_version_list"),
 
+  // Re-download stage (libraries/assets)
+  redownload_instance_stage: (name: string, stage: "libraries" | "assets") =>
+    handleInvoke<void>("redownload_instance_stage", { name, stage }),
+
   // Game launch
   launch_game: (
     name: string,

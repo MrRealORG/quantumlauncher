@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Save, RotateCcw, Info, FolderOpen, Trash2, Pencil, Check, X } from "lucide-react";
+import { Save, RotateCcw, Info, FolderOpen, Trash2, Pencil, Check, X, Download, RefreshCw, AlertTriangle } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import Button from "@/components/common/Button";
 import Input from "@/components/common/Input";
 import Select from "@/components/common/Select";
 import ConfirmModal from "@/components/modals/ConfirmModal";
+import { tauriCommands } from "@/utils/tauri";
 import type { InstanceConfigJson, PreLaunchPrefixMode } from "@/types";
 
 export default function EditTab() {
@@ -22,6 +23,7 @@ export default function EditTab() {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const [redownloading, setRedownloading] = useState<string | null>(null);
 
   useEffect(() => {
     if (instanceConfig) {
@@ -110,6 +112,35 @@ export default function EditTab() {
     }
     setConfirmDelete(false);
   }, [selectedInstance, deleteInstance, addToast]);
+
+  const handleRedownloadStage = useCallback(async (stage: "libraries" | "assets") => {
+    if (!selectedInstance) return;
+    const label = stage === "libraries" ? "Reinstalling libraries" : "Updating assets";
+    setRedownloading(stage);
+    try {
+      await tauriCommands.redownload_instance_stage(selectedInstance.name, stage);
+      addToast(`${label} completed`, "success");
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : `${label} failed`, "error");
+    } finally {
+      setRedownloading(null);
+    }
+  }, [selectedInstance, addToast]);
+
+  const handleOpenInstanceFolder = useCallback(async () => {
+    if (!selectedInstance) return;
+    try {
+      const { open } = await import("@tauri-apps/plugin-shell");
+      const kind = selectedInstance.kind;
+      const subDir = kind === "Client" ? "instances" : "servers";
+      const { appDataDir } = await import("@tauri-apps/api/path");
+      const dataDir = await appDataDir();
+      const instanceDir = `${dataDir}QuantumLauncher/${subDir}/${selectedInstance.name}`;
+      await open(instanceDir);
+    } catch {
+      addToast("Failed to open folder", "error");
+    }
+  }, [selectedInstance, addToast]);
 
   if (!selectedInstance || !localConfig) {
     return (
@@ -470,8 +501,55 @@ export default function EditTab() {
           </button>
         </div>
 
+        {/* Maintenance (Client only) */}
+        {selectedInstance.kind === "Client" && (
+          <div className="border-t border-theme-second-dark pt-4 mt-2">
+            <h3 className="text-xs font-semibold text-theme-text-muted mb-2">Maintenance</h3>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Download className="w-3.5 h-3.5" />}
+                loading={redownloading === "libraries"}
+                disabled={redownloading !== null}
+                onClick={() => handleRedownloadStage("libraries")}
+              >
+                Reinstall Libraries
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<RefreshCw className="w-3.5 h-3.5" />}
+                loading={redownloading === "assets"}
+                disabled={redownloading !== null}
+                onClick={() => handleRedownloadStage("assets")}
+              >
+                Update Assets
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<FolderOpen className="w-3.5 h-3.5" />}
+                onClick={handleOpenInstanceFolder}
+              >
+                Open Folder
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* RAM Warning */}
+        {localConfig.ram_in_mb > 8192 && (
+          <div className="flex items-start gap-2 bg-theme-warning/10 border border-theme-warning/30 rounded-lg px-3 py-2">
+            <AlertTriangle className="w-4 h-4 text-theme-warning flex-shrink-0 mt-0.5" />
+            <p className="text-[11px] text-theme-warning/90">
+              High memory allocation ({localConfig.ram_in_mb} MB). This may cause issues on systems with less RAM.
+            </p>
+          </div>
+        )}
+
         {/* Danger Zone */}
-        <div className="border-t border-theme-second-dark pt-4 mt-4">
+        <div className="border-t border-theme-second-dark pt-4 mt-2">
           <h3 className="text-xs font-semibold text-theme-error/80 mb-2">Danger Zone</h3>
           <Button
             variant="ghost"

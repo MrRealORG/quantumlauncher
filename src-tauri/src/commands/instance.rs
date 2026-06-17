@@ -323,3 +323,34 @@ pub async fn get_version_list(
     let (versions, latest_release) = ql_instances::list_versions().await.map_err(|e| e.to_string())?;
     Ok(VersionListResult { versions, latest_release })
 }
+
+/// Re-download a specific download stage (libraries or assets) for an instance.
+/// Used for "Reinstall Libraries" and "Update Assets" buttons.
+#[tauri::command]
+pub async fn redownload_instance_stage(
+    app: AppHandle,
+    name: String,
+    stage: String,
+) -> Result<(), String> {
+    let instance = Instance::client(&name);
+
+    let dl_stage = match stage.as_str() {
+        "libraries" => DownloadProgress::DownloadingLibraries { progress: 0, out_of: 0 },
+        "assets" => DownloadProgress::DownloadingAssets { progress: 0, out_of: 0 },
+        _ => return Err(format!("Unknown redownload stage: {stage}")),
+    };
+
+    let (sender, receiver) = std::sync::mpsc::channel::<DownloadProgress>();
+
+    let app_clone = app.clone();
+    tokio::spawn(async move {
+        while let Ok(progress) = receiver.recv() {
+            let payload = DownloadProgressPayload::from(progress);
+            let _ = app_clone.emit(EVENT_DOWNLOAD_PROGRESS, &payload);
+        }
+    });
+
+    ql_instances::repeat_stage(instance, dl_stage, Some(sender))
+        .await
+        .map_err(|e| e.to_string())
+}
