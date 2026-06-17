@@ -14,6 +14,9 @@ import {
   PowerOff,
   RefreshCw,
   Package,
+  ArrowUpCircle,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import Modal from "@/components/common/Modal";
@@ -26,7 +29,7 @@ import type {
   StoreBackendType,
   LocalMod,
 } from "@/types";
-import type { CategorySerializable, SearchResultSerializable } from "@/utils/tauri";
+import type { CategorySerializable, SearchResultSerializable, ModUpdate } from "@/utils/tauri";
 
 const QUERY_TYPES: { id: QueryType; label: string }[] = [
   { id: "Mods", label: "Mods" },
@@ -60,6 +63,11 @@ export default function ModsModal() {
   const [installedMods, setInstalledMods] = useState<LocalMod[]>([]);
   const [loadingInstalled, setLoadingInstalled] = useState(false);
   const [selectedModIds, setSelectedModIds] = useState<Set<string>>(new Set());
+  const [installedSubTab, setInstalledSubTab] = useState<"mods" | "updates">("mods");
+  const [modUpdates, setModUpdates] = useState<ModUpdate[]>([]);
+  const [checkedUpdates, setCheckedUpdates] = useState<Set<string>>(new Set());
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [applyingUpdates, setApplyingUpdates] = useState(false);
 
   const open = screen.type === "mods";
   const handleClose = useCallback(() => setScreen({ type: "main" }), [setScreen]);
@@ -191,6 +199,61 @@ export default function ModsModal() {
     setSelectedCategories((prev) =>
       prev.some((c) => c.slug === cat.slug) ? prev.filter((c) => c.slug !== cat.slug) : [...prev, cat]
     );
+  }, []);
+
+  // Check for mod updates
+  const handleCheckUpdates = useCallback(async () => {
+    if (!selectedInstance) return;
+    setCheckingUpdates(true);
+    setModUpdates([]);
+    setCheckedUpdates(new Set());
+    try {
+      const updates = await tauriCommands.check_mod_updates(selectedInstance.name, selectedInstance.kind);
+      setModUpdates(updates);
+      setCheckedUpdates(new Set(updates.map((u) => u.mod_id)));
+      if (updates.length === 0) {
+        addToast("All mods are up to date", "success");
+      } else {
+        addToast(`${updates.length} update(s) available`, "info");
+      }
+    } catch {
+      addToast("Failed to check for updates", "error");
+    } finally {
+      setCheckingUpdates(false);
+    }
+  }, [selectedInstance, addToast]);
+
+  // Apply selected mod updates
+  const handleApplyUpdates = useCallback(async () => {
+    if (!selectedInstance || checkedUpdates.size === 0) return;
+    setApplyingUpdates(true);
+    const updatesToApply = modUpdates.filter((u) => checkedUpdates.has(u.mod_id));
+    try {
+      await tauriCommands.apply_mod_updates(selectedInstance.name, selectedInstance.kind, updatesToApply);
+      addToast(`Updated ${updatesToApply.length} mod(s)`, "success");
+      setModUpdates([]);
+      setCheckedUpdates(new Set());
+      // Refresh installed mods list
+      setLoadingInstalled(true);
+      tauriCommands
+        .get_local_mods(selectedInstance.name, selectedInstance.kind)
+        .then(setInstalledMods)
+        .catch(() => {})
+        .finally(() => setLoadingInstalled(false));
+    } catch {
+      addToast("Failed to apply updates", "error");
+    } finally {
+      setApplyingUpdates(false);
+    }
+  }, [selectedInstance, modUpdates, checkedUpdates, addToast]);
+
+  const toggleUpdateCheck = useCallback((modId: string) => {
+    setCheckedUpdates((prev) => {
+      const next = new Set(prev);
+      if (next.has(modId)) next.delete(modId);
+      else next.add(modId);
+      return next;
+    });
   }, []);
 
   return (
@@ -401,96 +464,200 @@ export default function ModsModal() {
             </>
           ) : (
             /* Installed Mods Tab */
-            <div className="flex-1 overflow-y-auto p-2">
-              {loadingInstalled ? (
-                <div className="flex items-center justify-center h-full">
-                  <Loader2 className="w-6 h-6 animate-spin text-theme-mid" />
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Sub-tabs: Mods / Updates */}
+              <div className="flex items-center gap-2 px-4 pt-2 pb-1 flex-shrink-0">
+                <div className="flex bg-theme-dark rounded-lg border border-theme-second-dark overflow-hidden">
+                  <button
+                    onClick={() => setInstalledSubTab("mods")}
+                    className={`px-3 py-1 text-xs transition-colors ${
+                      installedSubTab === "mods"
+                        ? "bg-theme-mid text-theme-extra-dark font-medium"
+                        : "text-theme-text-muted hover:text-theme-text"
+                    }`}
+                  >
+                    Installed
+                  </button>
+                  <button
+                    onClick={() => setInstalledSubTab("updates")}
+                    className={`px-3 py-1 text-xs transition-colors relative ${
+                      installedSubTab === "updates"
+                        ? "bg-theme-mid text-theme-extra-dark font-medium"
+                        : "text-theme-text-muted hover:text-theme-text"
+                    }`}
+                  >
+                    Updates
+                    {modUpdates.length > 0 && (
+                      <span className="ml-1 bg-theme-accent text-theme-extra-dark text-[9px] font-bold px-1 rounded-full">
+                        {modUpdates.length}
+                      </span>
+                    )}
+                  </button>
                 </div>
-              ) : installedMods.length === 0 ? (
-                <div className="flex items-center justify-center h-full text-sm text-theme-text-muted">
-                  No installed mods
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {installedMods.map((mod) => (
-                    <div
-                      key={mod.id}
-                      className={`flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-theme-second-dark/30 transition-colors ${!mod.enabled ? "opacity-50" : ""}`}
-                    >
-                      {mod.icon_url && (
-                        <img src={mod.icon_url} alt="" className="w-6 h-6 rounded flex-shrink-0" onError={(e) => (e.currentTarget.style.display = "none")} />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm text-theme-text truncate">{mod.name}</div>
-                        {mod.installed_version && (
-                          <div className="text-[10px] text-theme-text-muted truncate">
-                            {mod.project_type} · v{mod.installed_version}
-                          </div>
-                        )}
-                      </div>
-                      {/* Enable/Disable toggle */}
-                      <button
-                        onClick={async () => {
-                          if (!selectedInstance) return;
-                          try {
-                            await tauriCommands.toggle_mod(selectedInstance.name, selectedInstance.kind, [mod.id]);
-                            setInstalledMods((prev) =>
-                              prev.map((m) =>
-                                m.id === mod.id ? { ...m, enabled: !m.enabled } : m
-                              )
-                            );
-                          } catch {
-                            addToast("Failed to toggle mod", "error");
-                          }
-                        }}
-                        title={mod.enabled ? "Disable" : "Enable"}
-                        className="flex-shrink-0 p-1 rounded hover:bg-theme-second-dark/60 transition-colors"
-                      >
-                        {mod.enabled ? (
-                          <Power className="w-3.5 h-3.5 text-theme-accent" />
-                        ) : (
-                          <PowerOff className="w-3.5 h-3.5 text-theme-text-muted" />
-                        )}
-                      </button>
-                      {/* Refresh (check for updates) */}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="flex-shrink-0"
-                        icon={<RefreshCw className="w-3.5 h-3.5" />}
-                        title="Check for updates"
-                        onClick={async () => {
-                          if (!selectedInstance) return;
-                          addToast("Checking for updates...", "info");
-                          // For now, just reload the list
-                          setLoadingInstalled(true);
-                          tauriCommands
-                            .get_local_mods(selectedInstance.name, selectedInstance.kind)
-                            .then(setInstalledMods)
-                            .catch(() => {})
-                            .finally(() => setLoadingInstalled(false));
-                        }}
-                      />
-                      {/* Delete */}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        icon={<Trash2 className="w-3.5 h-3.5" />}
-                        onClick={async () => {
-                          if (!selectedInstance) return;
-                          try {
-                            await tauriCommands.delete_mod(selectedInstance.name, selectedInstance.kind, [mod.id]);
-                            setInstalledMods((prev) => prev.filter((m) => m.id !== mod.id));
-                            addToast(`Deleted ${mod.name}`, "info");
-                          } catch {
-                            addToast("Failed to delete mod", "error");
-                          }
-                        }}
-                      />
+                <div className="flex-1" />
+                {installedSubTab === "updates" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<RefreshCw className="w-3.5 h-3.5" />}
+                    onClick={handleCheckUpdates}
+                    loading={checkingUpdates}
+                  >
+                    Check for Updates
+                  </Button>
+                )}
+                {installedSubTab === "mods" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<ArrowUpCircle className="w-3.5 h-3.5" />}
+                    onClick={() => {
+                      setInstalledSubTab("updates");
+                      if (modUpdates.length === 0) handleCheckUpdates();
+                    }}
+                    title="Check for mod updates"
+                  />
+                )}
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                {installedSubTab === "updates" ? (
+                  /* Updates Panel */
+                  checkingUpdates ? (
+                    <div className="flex items-center justify-center h-full gap-2 text-sm text-theme-text-muted">
+                      <Loader2 className="w-5 h-5 animate-spin text-theme-mid" />
+                      Checking for updates...
                     </div>
-                  ))}
-                </div>
-              )}
+                  ) : modUpdates.length === 0 ? (
+                    <div className="flex items-center justify-center h-full text-sm text-theme-text-muted">
+                      {checkedUpdates.size === 0 && !checkingUpdates
+                        ? "No updates available. Click 'Check for Updates' to scan."
+                        : "All mods are up to date!"}
+                    </div>
+                  ) : (
+                    <div className="p-2 space-y-2">
+                      <div className="flex items-center justify-between px-2">
+                        <span className="text-xs text-theme-text-muted">
+                          {checkedUpdates.size} of {modUpdates.length} selected
+                        </span>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          icon={<Download className="w-3.5 h-3.5" />}
+                          onClick={handleApplyUpdates}
+                          loading={applyingUpdates}
+                          disabled={checkedUpdates.size === 0}
+                        >
+                          Update {checkedUpdates.size > 0 ? `(${checkedUpdates.size})` : ""}
+                        </Button>
+                      </div>
+                      <div className="space-y-1">
+                        {modUpdates.map((update) => {
+                          const installed = installedMods.find((m) => m.id === update.mod_id);
+                          return (
+                            <div
+                              key={update.mod_id}
+                              className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-theme-second-dark/30 transition-colors"
+                            >
+                              <button
+                                onClick={() => toggleUpdateCheck(update.mod_id)}
+                                className="flex-shrink-0"
+                              >
+                                {checkedUpdates.has(update.mod_id) ? (
+                                  <CheckSquare className="w-4 h-4 text-theme-accent" />
+                                ) : (
+                                  <Square className="w-4 h-4 text-theme-text-muted" />
+                                )}
+                              </button>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm text-theme-text truncate">
+                                  {installed?.name || update.mod_id}
+                                </div>
+                                <div className="text-[10px] text-theme-text-muted truncate">
+                                  {installed?.installed_version || "unknown"} → {update.new_version}
+                                </div>
+                              </div>
+                              <ArrowUpCircle className="w-3.5 h-3.5 text-theme-mid flex-shrink-0" />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  /* Installed Mods List */
+                  loadingInstalled ? (
+                    <div className="flex items-center justify-center h-full">
+                      <Loader2 className="w-6 h-6 animate-spin text-theme-mid" />
+                    </div>
+                  ) : installedMods.length === 0 ? (
+                    <div className="flex items-center justify-center h-full text-sm text-theme-text-muted">
+                      No installed mods
+                    </div>
+                  ) : (
+                    <div className="p-2 space-y-1">
+                      {installedMods.map((mod) => (
+                        <div
+                          key={mod.id}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-theme-second-dark/30 transition-colors ${!mod.enabled ? "opacity-50" : ""}`}
+                        >
+                          {mod.icon_url && (
+                            <img src={mod.icon_url} alt="" className="w-6 h-6 rounded flex-shrink-0" onError={(e) => (e.currentTarget.style.display = "none")} />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm text-theme-text truncate">{mod.name}</div>
+                            {mod.installed_version && (
+                              <div className="text-[10px] text-theme-text-muted truncate">
+                                {mod.project_type} · v{mod.installed_version}
+                              </div>
+                            )}
+                          </div>
+                          {/* Enable/Disable toggle */}
+                          <button
+                            onClick={async () => {
+                              if (!selectedInstance) return;
+                              try {
+                                await tauriCommands.toggle_mod(selectedInstance.name, selectedInstance.kind, [mod.id]);
+                                setInstalledMods((prev) =>
+                                  prev.map((m) =>
+                                    m.id === mod.id ? { ...m, enabled: !m.enabled } : m
+                                  )
+                                );
+                              } catch {
+                                addToast("Failed to toggle mod", "error");
+                              }
+                            }}
+                            title={mod.enabled ? "Disable" : "Enable"}
+                            className="flex-shrink-0 p-1 rounded hover:bg-theme-second-dark/60 transition-colors"
+                          >
+                            {mod.enabled ? (
+                              <Power className="w-3.5 h-3.5 text-theme-accent" />
+                            ) : (
+                              <PowerOff className="w-3.5 h-3.5 text-theme-text-muted" />
+                            )}
+                          </button>
+                          {/* Delete */}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            icon={<Trash2 className="w-3.5 h-3.5" />}
+                            onClick={async () => {
+                              if (!selectedInstance) return;
+                              try {
+                                await tauriCommands.delete_mod(selectedInstance.name, selectedInstance.kind, [mod.id]);
+                                setInstalledMods((prev) => prev.filter((m) => m.id !== mod.id));
+                                addToast(`Deleted ${mod.name}`, "info");
+                              } catch {
+                                addToast("Failed to delete mod", "error");
+                              }
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
+              </div>
             </div>
           )}
         </div>

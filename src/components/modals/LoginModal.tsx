@@ -28,6 +28,7 @@ export default function LoginModal() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState("");
+  const [otpRequired, setOtpRequired] = useState(false);
   const [msData, setMsData] = useState<{
     user_code: string;
     verification_uri: string;
@@ -130,7 +131,7 @@ export default function LoginModal() {
     }
   }, [addToast, handleClose, storeAccount]);
 
-  const handleYggdrasilLogin = useCallback(async () => {
+  const handleYggdrasilLogin = useCallback(async (otpCode?: string) => {
     if (!username.trim() || !password.trim()) return;
     setLoading(true);
     try {
@@ -139,18 +140,24 @@ export default function LoginModal() {
         method === "littleskin"
           ? "https://littleskin.cn/api/yggdrasil"
           : undefined;
+      // OTP is appended to password with colon separator (same as iced)
+      const passwordWithOtp = otpCode
+        ? `${password}:${otpCode}`
+        : password;
       const result = await tauriCommands.login_yggdrasil(
         username.trim(),
-        password,
+        passwordWithOtp,
         authType,
         authUrl
       );
 
       if (result.is_needs_otp) {
+        setOtpRequired(true);
         addToast("OTP required. Please check your email and enter the code.", "warning");
-        return; // OTP flow not fully implemented yet
+        return;
       }
 
+      setOtpRequired(false);
       storeAccount(result.account);
       addToast(`Logged in as ${result.account.nice_username}`, "success");
       handleClose();
@@ -184,6 +191,7 @@ export default function LoginModal() {
                 setUsername("");
                 setPassword("");
                 setOtp("");
+                setOtpRequired(false);
               }}
               className={`
                 flex-1 px-2 py-1.5 text-xs rounded-lg border transition-all text-center
@@ -294,24 +302,45 @@ export default function LoginModal() {
             {method === "elyby" && (
               <div>
                 <label className="block text-xs font-medium text-theme-text-muted mb-1">
-                  OTP Code (optional)
+                  {otpRequired ? "OTP Code" : "OTP Code (optional)"}
                 </label>
-                <Input
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                  placeholder="000000"
-                />
+                <div className="flex gap-2">
+                  <Input
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value)}
+                    placeholder="000000"
+                    className="flex-1"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && otpRequired && otp.trim()) {
+                        handleYggdrasilLogin(otp.trim());
+                      }
+                    }}
+                  />
+                  {otpRequired && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => handleYggdrasilLogin(otp.trim())}
+                      loading={loading}
+                      disabled={!otp.trim()}
+                    >
+                      Submit
+                    </Button>
+                  )}
+                </div>
               </div>
             )}
-            <Button
-              variant="primary"
-              className="w-full"
-              onClick={handleYggdrasilLogin}
-              loading={loading}
-              disabled={!username.trim() || !password.trim()}
-            >
-              Login
-            </Button>
+            {!otpRequired && (
+              <Button
+                variant="primary"
+                className="w-full"
+                onClick={() => handleYggdrasilLogin()}
+                loading={loading}
+                disabled={!username.trim() || !password.trim()}
+              >
+                Login
+              </Button>
+            )}
             <p className="text-[11px] text-theme-text-muted text-center">
               Or{" "}
               <a
