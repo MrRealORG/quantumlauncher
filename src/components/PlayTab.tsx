@@ -78,8 +78,8 @@ export default function PlayTab() {
       const { appDataDir } = await import("@tauri-apps/api/path");
       // Get the launcher data directory and open the instance folder
       const dataDir = await appDataDir();
-      const instancePath = `${dataDir}/${
-        selectedInstance.kind === "Client" ? "clients" : "servers"
+      const instancePath = `${dataDir}QuantumLauncher/${
+        selectedInstance.kind === "Client" ? "instances" : "servers"
       }/${selectedInstance.name}`;
       await open(instancePath);
     } catch {
@@ -252,6 +252,7 @@ export default function PlayTab() {
               className="flex-1"
               icon={<Square className="w-5 h-5" />}
               onClick={() => killGame(selectedInstance.name)}
+              title="Ctrl+Backspace"
             >
               {isServer ? "Stop" : "Kill"}
             </Button>
@@ -263,6 +264,7 @@ export default function PlayTab() {
               icon={<Play className="w-5 h-5" />}
               loading={isLaunching}
               onClick={launchGame}
+              title="Ctrl+Enter"
             >
               {isServer ? "Start" : "Play"}
             </Button>

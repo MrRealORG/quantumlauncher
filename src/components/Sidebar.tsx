@@ -118,11 +118,14 @@ export default function Sidebar() {
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   // Get all nodes (use sidebar config or fall back to flat lists)
+  // The sidebar config stores the user-arranged tree order — instances and folders
+  // are intermixed. When no config exists, build a flat list preserving
+  // client/server ordering (matching the original iced behaviour).
   const nodes = useMemo(() => {
     if (sidebarConfig?.list && sidebarConfig.list.length > 0) {
       return sidebarConfig.list;
     }
-    // Build flat list from instances
+    // Build flat list from instances (clients first, then servers)
     const list: SidebarNode[] = [];
     for (const name of clientInstances) {
       list.push({ name, kind: { type: "instance", kind: "Client" } });
@@ -132,20 +135,6 @@ export default function Sidebar() {
     }
     return list;
   }, [sidebarConfig, clientInstances, serverInstances]);
-
-  // Separate into clients and servers
-  const clientNodes = useMemo(
-    () => nodes.filter((n) => n.kind.type === "instance" && n.kind.kind === "Client"),
-    [nodes]
-  );
-  const serverNodes = useMemo(
-    () => nodes.filter((n) => n.kind.type === "instance" && n.kind.kind === "Server"),
-    [nodes]
-  );
-  const folderNodes = useMemo(
-    () => nodes.filter((n) => n.kind.type === "folder"),
-    [nodes]
-  );
 
   const isSelected = useCallback(
     (name: string, kind: InstanceKind) =>
@@ -488,40 +477,12 @@ export default function Sidebar() {
         className="relative flex flex-col bg-theme-surface border-r border-theme-second-dark overflow-hidden flex-shrink-0"
         style={{ width: `${sidebarWidth * 100}%` }}
       >
-        {/* Client Section */}
+        {/* Sidebar tree — renders nodes in configured order (flat tree) */}
         <div
           className="flex-1 overflow-y-auto py-2 px-1.5"
           onContextMenu={handleEmptySpaceContextMenu}
         >
-          <div className="mb-1">
-            <div className="flex items-center gap-1.5 px-2 py-1 mb-0.5">
-              <Monitor className="w-3.5 h-3.5 text-theme-text-muted" />
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-theme-text-muted">
-                Clients
-              </span>
-            </div>
-            {clientNodes.map((n) => renderNode(n))}
-          </div>
-
-          {/* Folders mixed in */}
-          {folderNodes.length > 0 && (
-            <div className="mb-1">
-              {folderNodes.map((n) => renderNode(n))}
-            </div>
-          )}
-
-          {/* Server Section */}
-          {serverNodes.length > 0 && (
-            <div>
-              <div className="flex items-center gap-1.5 px-2 py-1 mb-0.5 mt-2">
-                <Server className="w-3.5 h-3.5 text-theme-text-muted" />
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-theme-text-muted">
-                  Servers
-                </span>
-              </div>
-              {serverNodes.map((n) => renderNode(n))}
-            </div>
-          )}
+          {nodes.map((n) => renderNode(n))}
         </div>
 
         {/* Bottom Buttons */}

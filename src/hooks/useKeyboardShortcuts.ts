@@ -92,23 +92,26 @@ export function useKeyboardShortcuts() {
 
       // Ctrl+1/2/3: Switch tabs (when on main screen)
       if (screen.type === "main") {
-        if ((e.ctrlKey || e.metaKey) && e.key === "1") {
+        // Ctrl+1 / Alt+1: Play tab
+        if (((e.ctrlKey || e.metaKey) || e.altKey) && e.key === "1") {
           e.preventDefault();
           useAppStore.setState({ activeTab: "play" });
           return;
         }
-        if ((e.ctrlKey || e.metaKey) && e.key === "2") {
+        // Ctrl+2 / Alt+2: Logs tab
+        if (((e.ctrlKey || e.metaKey) || e.altKey) && e.key === "2") {
           e.preventDefault();
           useAppStore.setState({ activeTab: "logs" });
           return;
         }
-        if ((e.ctrlKey || e.metaKey) && e.key === "3") {
+        // Ctrl+3 / Alt+3: Edit tab
+        if (((e.ctrlKey || e.metaKey) || e.altKey) && e.key === "3") {
           e.preventDefault();
           useAppStore.setState({ activeTab: "edit" });
           return;
         }
 
-        // Arrow Up/Down: Navigate instances in sidebar
+        // Arrow Up/Down: Navigate instances in sidebar (wraps around)
         if (e.key === "ArrowDown" || e.key === "ArrowUp") {
           const list = instanceListRef.current;
           if (list.length === 0) return;
@@ -129,6 +132,13 @@ export function useKeyboardShortcuts() {
           const next = list[nextIdx];
           selectInstance(next.name, next.kind);
           e.preventDefault();
+          return;
+        }
+
+        // Ctrl+F: Open mod store search (acts as a shortcut to mods screen)
+        if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+          e.preventDefault();
+          setScreen({ type: "mods" });
           return;
         }
       }
