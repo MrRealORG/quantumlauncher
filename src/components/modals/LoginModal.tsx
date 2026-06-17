@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Loader2, ExternalLink, Copy } from "lucide-react";
+import { Loader2, ExternalLink, Copy, Eye, EyeOff } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import Modal from "@/components/common/Modal";
 import Button from "@/components/common/Button";
 import Input from "@/components/common/Input";
 import { tauriCommands } from "@/utils/tauri";
-import type { AccountType, AccountData } from "@/types";
+import type { AccountType, AccountData, ConfigAccount } from "@/types";
 
 type LoginMethod = "microsoft" | "elyby" | "littleskin" | "offline";
 
@@ -20,11 +20,18 @@ export default function LoginModal() {
   const screen = useAppStore((s) => s.screen);
   const setScreen = useAppStore((s) => s.setScreen);
   const addToast = useAppStore((s) => s.addToast);
+  const config = useAppStore((s) => s.config);
+  const updateConfig = useAppStore((s) => s.updateConfig);
 
   const [method, setMethod] = useState<LoginMethod>("microsoft");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [msData, setMsData] = useState<{ user_code: string; verification_uri: string } | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [otp, setOtp] = useState("");
+  const [msData, setMsData] = useState<{
+    user_code: string;
+    verification_uri: string;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [polling, setPolling] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval>>();
@@ -43,6 +50,49 @@ export default function LoginModal() {
     };
   }, []);
 
+  /** Store account data into config.accounts and update dropdown */
+  const storeAccount = useCallback(
+    (account: AccountData) => {
+      if (!config) return;
+
+      const niceName = account.nice_username || account.username;
+      const configAccount: ConfigAccount = {
+        uuid: account.uuid,
+        skin: null,
+        account_type: account.account_type,
+        keyring_identifier: null,
+        username_nice: niceName,
+      };
+
+      const existing = config.accounts || {};
+      const updatedAccounts = { ...existing, [niceName]: configAccount };
+      const dropdownNames = Object.keys(updatedAccounts).sort();
+
+      // Insert new name into dropdown before "+ Add Account"
+      const newDropdown = [
+        "(Offline)",
+        ...dropdownNames,
+        "+ Add Account",
+      ];
+
+      updateConfig({
+        accounts: updatedAccounts,
+        account_selected: niceName,
+      });
+
+      // Also update the store's dropdown directly for immediate UI update
+      useAppStore.setState({
+        accountsDropdown: newDropdown,
+        selectedAccount: niceName,
+        accounts: {
+          ...useAppStore.getState().accounts,
+          [niceName]: account,
+        },
+      });
+    },
+    [config, updateConfig]
+  );
+
   const handleMicrosoftLogin = useCallback(async () => {
     setLoading(true);
     try {
@@ -53,51 +103,70 @@ export default function LoginModal() {
       // Start polling
       pollRef.current = setInterval(async () => {
         try {
-          const account = await tauriCommands.poll_microsoft_login(data.user_code);
+          const account = await tauriCommands.poll_microsoft_login(
+            data.user_code
+          );
           if (account) {
             clearInterval(pollRef.current);
             setPolling(false);
             setLoading(false);
+            storeAccount(account);
             addToast(`Logged in as ${account.nice_username}`, "success");
             handleClose();
           }
-        } catch {
-          // Continue polling
+          // null = still pending, continue polling
+        } catch (e) {
+          // Auth declined or expired
+          clearInterval(pollRef.current);
+          setPolling(false);
+          setLoading(false);
+          addToast(e instanceof Error ? e.message : "Microsoft auth failed", "error");
         }
-      }, 3000);
-    } catch (e) {
+      }, 5000);
+    } catch {
       addToast("Failed to start Microsoft login", "error");
     } finally {
       setLoading(false);
     }
-  }, [addToast, handleClose]);
+  }, [addToast, handleClose, storeAccount]);
 
   const handleYggdrasilLogin = useCallback(async () => {
     if (!username.trim() || !password.trim()) return;
     setLoading(true);
     try {
       const authType = method === "elyby" ? "ElyBy" : "LittleSkin";
-      const authUrl = method === "littleskin" ? "https://littleskin.cn/api/yggdrasil" : undefined;
-      const account = await tauriCommands.login_yggdrasil(
+      const authUrl =
+        method === "littleskin"
+          ? "https://littleskin.cn/api/yggdrasil"
+          : undefined;
+      const result = await tauriCommands.login_yggdrasil(
         username.trim(),
         password,
         authType,
         authUrl
       );
-      addToast(`Logged in as ${account.nice_username}`, "success");
+
+      if (result.is_needs_otp) {
+        addToast("OTP required. Please check your email and enter the code.", "warning");
+        return; // OTP flow not fully implemented yet
+      }
+
+      storeAccount(result.account);
+      addToast(`Logged in as ${result.account.nice_username}`, "success");
       handleClose();
     } catch (e) {
       addToast(e instanceof Error ? e.message : "Login failed", "error");
     } finally {
       setLoading(false);
     }
-  }, [method, username, password, addToast, handleClose]);
+  }, [method, username, password, addToast, handleClose, storeAccount]);
 
   const handleOffline = useCallback(() => {
     if (!username.trim()) return;
+    updateConfig({ username: username.trim() });
     addToast(`Using offline username: ${username.trim()}`, "info");
     handleClose();
-  }, [username, addToast, handleClose]);
+  }, [username, addToast, handleClose, updateConfig]);
 
   return (
     <Modal open={open} onClose={handleClose} title="Add Account">
@@ -112,6 +181,9 @@ export default function LoginModal() {
                 setMsData(null);
                 if (pollRef.current) clearInterval(pollRef.current);
                 setPolling(false);
+                setUsername("");
+                setPassword("");
+                setOtp("");
               }}
               className={`
                 flex-1 px-2 py-1.5 text-xs rounded-lg border transition-all text-center
@@ -141,7 +213,9 @@ export default function LoginModal() {
                       {msData.user_code}
                     </span>
                     <button
-                      onClick={() => navigator.clipboard.writeText(msData.user_code)}
+                      onClick={() =>
+                        navigator.clipboard.writeText(msData.user_code)
+                      }
                       className="p-1.5 rounded-md hover:bg-theme-second-dark text-theme-text-muted hover:text-theme-text transition-colors"
                     >
                       <Copy className="w-4 h-4" />
@@ -187,18 +261,48 @@ export default function LoginModal() {
               <Input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder={method === "elyby" ? "email@example.com" : "Username"}
+                placeholder={
+                  method === "elyby" ? "email@example.com" : "Username"
+                }
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-theme-text-muted mb-1">Password</label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
-              />
+              <label className="block text-xs font-medium text-theme-text-muted mb-1">
+                Password
+              </label>
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password"
+                  className="pr-8"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-theme-text-muted hover:text-theme-text transition-colors"
+                >
+                  {showPassword ? (
+                    <EyeOff className="w-3.5 h-3.5" />
+                  ) : (
+                    <Eye className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              </div>
             </div>
+            {method === "elyby" && (
+              <div>
+                <label className="block text-xs font-medium text-theme-text-muted mb-1">
+                  OTP Code (optional)
+                </label>
+                <Input
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  placeholder="000000"
+                />
+              </div>
+            )}
             <Button
               variant="primary"
               className="w-full"
@@ -208,6 +312,21 @@ export default function LoginModal() {
             >
               Login
             </Button>
+            <p className="text-[11px] text-theme-text-muted text-center">
+              Or{" "}
+              <a
+                href={
+                  method === "elyby"
+                    ? "https://ely.by/register"
+                    : "https://littleskin.cn/auth/register"
+                }
+                target="_blank"
+                rel="noreferrer"
+                className="text-theme-mid hover:text-theme-accent underline transition-colors"
+              >
+                create an account
+              </a>
+            </p>
           </div>
         )}
 

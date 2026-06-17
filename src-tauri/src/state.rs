@@ -11,6 +11,9 @@ use tokio::sync::Mutex;
 pub struct AppState {
     /// Currently running game and server processes, keyed by instance name.
     pub running_processes: Mutex<HashMap<String, LaunchedProcess>>,
+    /// Stores the Microsoft device_code for the current MS login flow.
+    /// Keyed by user_code so multiple concurrent logins are supported.
+    pub ms_device_codes: Mutex<HashMap<String, String>>,
 }
 
 impl AppState {
@@ -18,6 +21,7 @@ impl AppState {
     pub fn new() -> Self {
         Self {
             running_processes: Mutex::new(HashMap::new()),
+            ms_device_codes: Mutex::new(HashMap::new()),
         }
     }
 }

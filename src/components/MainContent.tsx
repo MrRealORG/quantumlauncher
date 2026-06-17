@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Play, FileText, Settings2 } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import TabBar from "@/components/common/TabBar";
@@ -14,7 +13,8 @@ const tabs = [
 ];
 
 export default function MainContent() {
-  const [activeTab, setActiveTab] = useState("play");
+  const activeTab = useAppStore((s) => s.activeTab);
+  const setActiveTab = useAppStore((s) => s.setActiveTab);
   const selectedInstance = useAppStore((s) => s.selectedInstance);
   const launchProgress = useAppStore((s) => s.launchProgress);
   const isLaunching = useAppStore((s) => s.isLaunching);
@@ -23,7 +23,7 @@ export default function MainContent() {
     <div className="flex-1 flex flex-col overflow-hidden bg-theme-background">
       {/* Tab Bar */}
       <div className="flex items-center justify-between px-4 border-b border-theme-second-dark flex-shrink-0">
-        <TabBar tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
+        <TabBar tabs={tabs} activeTab={activeTab} onTabChange={(tabId) => setActiveTab(tabId as "play" | "logs" | "edit")} />
         {selectedInstance && (
           <span className="text-xs text-theme-text-muted truncate max-w-[200px]">
             {selectedInstance.name}

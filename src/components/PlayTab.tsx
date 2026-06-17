@@ -1,5 +1,19 @@
 import { useState, useEffect, useCallback } from "react";
-import { Play, Settings, Plus, Loader2, Package, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  Play,
+  Settings,
+  Plus,
+  Loader2,
+  Package,
+  ChevronDown,
+  ChevronUp,
+  Puzzle,
+  FolderOpen,
+  Square,
+  Download,
+  Link2,
+  MoreVertical,
+} from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import Button from "@/components/common/Button";
 import Input from "@/components/common/Input";
@@ -14,8 +28,10 @@ export default function PlayTab() {
     accountsDropdown,
     selectedAccount,
     isLaunching,
+    runningInstances,
     setSelectedAccount,
     launchGame,
+    killGame,
     setScreen,
     updateConfig,
     saveNotes,
@@ -23,14 +39,48 @@ export default function PlayTab() {
 
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [localNotes, setLocalNotes] = useState("");
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+
+  const isGameRunning = selectedInstance
+    ? runningInstances.has(selectedInstance.name)
+    : false;
 
   useEffect(() => {
     setLocalNotes(instanceNotes || "");
   }, [instanceNotes]);
 
+  // Close more menu on click outside
+  useEffect(() => {
+    if (!showMoreMenu) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-more-menu]")) {
+        setShowMoreMenu(false);
+      }
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [showMoreMenu]);
+
   const handleSaveNotes = useCallback(() => {
     saveNotes(localNotes);
   }, [localNotes, saveNotes]);
+
+  const handleOpenFolder = useCallback(async () => {
+    if (!selectedInstance) return;
+    try {
+      const { open } = await import("@tauri-apps/plugin-shell");
+      const { appDataDir } = await import("@tauri-apps/api/path");
+      // Get the launcher data directory and open the instance folder
+      const dataDir = await appDataDir();
+      const instancePath = `${dataDir}/${
+        selectedInstance.kind === "Client" ? "clients" : "servers"
+      }/${selectedInstance.name}`;
+      await open(instancePath);
+    } catch {
+      // Shell plugin may not be available in all environments
+    }
+  }, [selectedInstance]);
 
   const accountOptions = accountsDropdown.map((a) => ({ value: a, label: a }));
 
@@ -57,15 +107,27 @@ export default function PlayTab() {
   const loaderInfo = instanceConfig?.mod_type_info;
   const loaderName = instanceConfig?.mod_type || "Vanilla";
   const loaderVersion = loaderInfo?.version || "";
+  const isServer = selectedInstance.kind === "Server";
 
   return (
     <div className="flex-1 overflow-y-auto p-4">
       <div className="max-w-md mx-auto space-y-4">
-        {/* Instance Name */}
+        {/* Instance Name + Running Indicator */}
         <div>
-          <h1 className="text-lg font-semibold text-theme-text truncate" title={selectedInstance.name}>
-            {selectedInstance.name}
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1
+              className="text-lg font-semibold text-theme-text truncate font-mono"
+              title={selectedInstance.name}
+            >
+              {selectedInstance.name}
+            </h1>
+            {isGameRunning && (
+              <span className="flex items-center gap-1 text-xs text-theme-accent">
+                <Play className="w-3 h-3" />
+                Running...
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2 mt-1 text-xs text-theme-text-muted">
             <span className="px-1.5 py-0.5 bg-theme-second-dark/60 rounded text-[10px] uppercase font-medium">
               {selectedInstance.kind}
@@ -110,24 +172,101 @@ export default function PlayTab() {
           </div>
         )}
 
-        {/* Play and Settings Buttons */}
+        {/* Play/Kill and Settings Buttons */}
         <div className="flex gap-2 pt-1">
-          <Button
-            variant="primary"
-            size="lg"
-            className="flex-1"
-            icon={<Play className="w-5 h-5" />}
-            loading={isLaunching}
-            onClick={launchGame}
-          >
-            Play
-          </Button>
+          {isGameRunning ? (
+            <Button
+              variant="danger"
+              size="lg"
+              className="flex-1"
+              icon={<Square className="w-5 h-5" />}
+              onClick={() => killGame(selectedInstance.name, selectedInstance.kind)}
+            >
+              {isServer ? "Stop" : "Kill"}
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              size="lg"
+              className="flex-1"
+              icon={<Play className="w-5 h-5" />}
+              loading={isLaunching}
+              onClick={launchGame}
+            >
+              {isServer ? "Start" : "Play"}
+            </Button>
+          )}
           <Button
             variant="secondary"
             size="lg"
             icon={<Settings className="w-5 h-5" />}
             onClick={() => setScreen({ type: "settings" })}
+            title="Settings"
           />
+        </div>
+
+        {/* Action Buttons Row */}
+        <div className="flex gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex-1"
+            icon={<Puzzle className="w-4 h-4" />}
+            onClick={() => setScreen({ type: "mods" })}
+          >
+            Mods
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex-1"
+            icon={<FolderOpen className="w-4 h-4" />}
+            onClick={handleOpenFolder}
+          >
+            Files
+          </Button>
+          <div className="relative" data-more-menu>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<MoreVertical className="w-4 h-4" />}
+              onClick={() => setShowMoreMenu(!showMoreMenu)}
+            />
+            {showMoreMenu && (
+              <div className="absolute left-0 top-full mt-1 w-44 bg-theme-surface border border-theme-second-dark rounded-lg shadow-xl z-50 py-1">
+                <button
+                  className="w-full text-left px-3 py-1.5 text-xs text-theme-text hover:bg-theme-second-dark/60 transition-colors flex items-center gap-2"
+                  onClick={() => {
+                    setShowMoreMenu(false);
+                    setScreen({ type: "loader" });
+                  }}
+                >
+                  <Loader2 className="w-3.5 h-3.5" />
+                  Install Loader
+                </button>
+                <button
+                  className="w-full text-left px-3 py-1.5 text-xs text-theme-text hover:bg-theme-second-dark/60 transition-colors flex items-center gap-2"
+                  onClick={() => {
+                    setShowMoreMenu(false);
+                    setScreen({ type: "shortcut" });
+                  }}
+                >
+                  <Link2 className="w-3.5 h-3.5" />
+                  Create Shortcut
+                </button>
+                <button
+                  className="w-full text-left px-3 py-1.5 text-xs text-theme-text hover:bg-theme-second-dark/60 transition-colors flex items-center gap-2"
+                  onClick={() => {
+                    setShowMoreMenu(false);
+                    setScreen({ type: "export_instance" });
+                  }}
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Export Instance
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Create Instance */}

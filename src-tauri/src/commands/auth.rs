@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use ql_instances::auth::{self, AccountData, AccountType};
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
 
 use crate::events::{EVENT_GENERIC_PROGRESS, GenericProgressPayload};
 use crate::state::AppState;
@@ -90,13 +90,31 @@ pub async fn get_accounts() -> Result<HashMap<String, AccountInfo>, String> {
     Ok(accounts)
 }
 
+/// Full Microsoft device code response stored for polling.
+#[derive(Debug, Clone)]
+struct StoredMsAuth {
+    user_code: String,
+    device_code: String,
+    expires_in: isize,
+}
+
 #[tauri::command]
 pub async fn login_microsoft(
     app: AppHandle,
+    state: State<'_, AppState>,
 ) -> Result<MsDeviceCodeResponse, String> {
     let auth_code = auth::ms::login_1_link()
         .await
         .map_err(|e| e.to_string())?;
+
+    // Store the device_code keyed by user_code for later polling
+    {
+        let mut codes = state.ms_device_codes.lock().await;
+        codes.insert(
+            auth_code.user_code.clone(),
+            auth_code.device_code.clone(),
+        );
+    }
 
     Ok(MsDeviceCodeResponse {
         user_code: auth_code.user_code,
@@ -109,78 +127,74 @@ pub async fn login_microsoft(
 #[tauri::command]
 pub async fn poll_microsoft_login(
     app: AppHandle,
+    state: State<'_, AppState>,
     user_code: String,
-    device_code: String,
-) -> Result<AccountInfo, String> {
-    // We need to reconstruct the full AuthCodeResponse to poll.
-    // However, the device_code field is private in AuthCodeResponse.
-    // Instead, we use login_2_wait with the original response.
-    // Since we can't reconstruct it perfectly, we'll use the refresh flow
-    // or call the polling endpoint directly.
-
-    // Actually, looking at the source, login_2_wait takes AuthCodeResponse.
-    // We need to store the full response in state. For simplicity here,
-    // we'll do a direct poll similar to what login_2_wait does.
-
+) -> Result<Option<AccountInfo>, String> {
     use ql_core::CLIENT;
 
-    // First, we need to get the interval. We don't have it stored,
-    // so we'll use a default polling interval.
-    let interval = 5u64;
+    // Retrieve stored device_code
+    let device_code = {
+        let codes = state.ms_device_codes.lock().await;
+        match codes.get(&user_code) {
+            Some(code) => code.clone(),
+            None => return Err("No active Microsoft login session found. Please start a new login.".to_string()),
+        }
+    };
 
-    loop {
-        tokio::time::sleep(std::time::Duration::from_secs(interval + 1)).await;
+    // Single poll attempt (frontend handles the interval)
+    let code_resp = CLIENT
+        .post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token")
+        .form(&[
+            ("client_id", auth::ms::CLIENT_ID),
+            ("scope", "XboxLive.signin offline_access"),
+            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+            ("device_code", &device_code),
+        ])
+        .send()
+        .await
+        .map_err(|e| format!("Microsoft auth request error: {e}"))?;
 
-        let code_resp = CLIENT
-            .post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token")
-            .form(&[
-                ("client_id", auth::ms::CLIENT_ID),
-                ("scope", "XboxLive.signin offline_access"),
-                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-                ("device_code", &device_code),
-            ])
-            .send()
-            .await
-            .map_err(|e| format!("Microsoft auth request error: {e}"))?;
-
-        match code_resp.status() {
-            reqwest::StatusCode::BAD_REQUEST => {
-                let txt = code_resp.text().await.unwrap_or_default();
-                let error: serde_json::Value = serde_json::from_str(&txt).unwrap_or_default();
-                let error_code = error["error"].as_str().unwrap_or("");
-                match error_code {
-                    "authorization_declined" | "expired_token" | "invalid_grant" => {
-                        return Err("Microsoft auth was declined or expired. Please try again.".to_string());
-                    }
-                    _ => continue, // Still pending, keep polling
+    match code_resp.status() {
+        reqwest::StatusCode::BAD_REQUEST => {
+            let txt = code_resp.text().await.unwrap_or_default();
+            let error: serde_json::Value = serde_json::from_str(&txt).unwrap_or_default();
+            let error_code = error["error"].as_str().unwrap_or("");
+            match error_code {
+                "authorization_declined" | "expired_token" | "invalid_grant" => {
+                    // Clean up stored code
+                    state.ms_device_codes.lock().await.remove(&user_code);
+                    return Err("Microsoft auth was declined or expired. Please try again.".to_string());
                 }
-            }
-            reqwest::StatusCode::OK => {
-                let text = code_resp.text().await.map_err(|e| e.to_string())?;
-                let response: auth::ms::AuthTokenResponse =
-                    serde_json::from_str(&text).map_err(|e| e.to_string())?;
-
-                // Now complete the Xbox/Minecraft auth chain
-                let (sender, receiver) = std::sync::mpsc::channel();
-
-                // Forward progress to frontend
-                let app_clone = app.clone();
-                tokio::spawn(async move {
-                    while let Ok(progress) = receiver.recv() {
-                        let _ = app_clone.emit(EVENT_GENERIC_PROGRESS, GenericProgressPayload::from(progress));
-                    }
-                });
-
-                let account_data = auth::ms::login_3_xbox(response, Some(sender), true)
-                    .await
-                    .map_err(|e| e.to_string())?;
-
-                return Ok(AccountInfo::from(account_data));
-            }
-            code => {
-                return Err(format!("Microsoft auth error: HTTP {code}"));
+                _ => Ok(None), // Still pending
             }
         }
+        reqwest::StatusCode::OK => {
+            // Clean up stored code
+            state.ms_device_codes.lock().await.remove(&user_code);
+
+            let text = code_resp.text().await.map_err(|e| e.to_string())?;
+            let response: auth::ms::AuthTokenResponse =
+                serde_json::from_str(&text).map_err(|e| e.to_string())?;
+
+            let (sender, receiver) = std::sync::mpsc::channel();
+
+            let app_clone = app.clone();
+            tokio::spawn(async move {
+                while let Ok(progress) = receiver.recv() {
+                    let _ = app_clone.emit(EVENT_GENERIC_PROGRESS, GenericProgressPayload::from(progress));
+                }
+            });
+
+            let account_data = auth::ms::login_3_xbox(response, Some(sender), true)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            // Save account to disk
+            save_account_to_disk(&account_data).await?;
+
+            Ok(Some(AccountInfo::from(account_data)))
+        }
+        code => Err(format!("Microsoft auth error: HTTP {code}")),
     }
 }
 
@@ -213,28 +227,41 @@ pub async fn login_offline(
     Ok(AccountInfo::from(account))
 }
 
+/// Save account data to disk helper.
+async fn save_account_to_disk(account_data: &AccountData) -> Result<(), String> {
+    let accounts_dir = ql_core::LAUNCHER_DIR.join("accounts");
+    tokio::fs::create_dir_all(&accounts_dir)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let account_path = accounts_dir.join(format!("{}.json", account_data.username));
+    let json = serde_json::to_string_pretty(account_data).unwrap_or_default();
+    tokio::fs::write(&account_path, json)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn login_yggdrasil(
     username: String,
     password: String,
+    auth_type: String,
+    auth_url: Option<String>,
 ) -> Result<LoginResult, String> {
-    let result = auth::yggdrasil::login_new(username, password, AccountType::ElyBy)
+    let account_type = match auth_type.as_str() {
+        "LittleSkin" => AccountType::LittleSkin,
+        _ => AccountType::ElyBy,
+    };
+
+    let result = auth::yggdrasil::login_new(username, password, account_type)
         .await
         .map_err(|e| e.to_string())?;
 
+    let type_str = account_type.to_string();
+
     match result {
         auth::alt::Account::Account(account_data) => {
-            // Save account data to disk
-            let accounts_dir = ql_core::LAUNCHER_DIR.join("accounts");
-            tokio::fs::create_dir_all(&accounts_dir)
-                .await
-                .map_err(|e| e.to_string())?;
-
-            let account_path = accounts_dir.join(format!("{}.json", account_data.username));
-            let json = serde_json::to_string_pretty(&account_data).unwrap_or_default();
-            tokio::fs::write(&account_path, json)
-                .await
-                .map_err(|e| e.to_string())?;
+            save_account_to_disk(&account_data).await?;
 
             Ok(LoginResult {
                 account: AccountInfo::from(account_data),
@@ -247,7 +274,7 @@ pub async fn login_yggdrasil(
                 uuid: String::new(),
                 username: String::new(),
                 nice_username: String::new(),
-                account_type: "ElyBy".to_string(),
+                account_type: type_str,
                 needs_refresh: false,
             },
             is_needs_otp: true,
@@ -257,45 +284,7 @@ pub async fn login_yggdrasil(
 
 // login_littleskin merged into login_yggdrasil above (same logic, different AccountType)
 
-pub async fn login_littleskin_internal(
-    username: String,
-    password: String,
-) -> Result<LoginResult, String> {
-    let result = auth::yggdrasil::login_new(username, password, AccountType::LittleSkin)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    match result {
-        auth::alt::Account::Account(account_data) => {
-            let accounts_dir = ql_core::LAUNCHER_DIR.join("accounts");
-            tokio::fs::create_dir_all(&accounts_dir)
-                .await
-                .map_err(|e| e.to_string())?;
-
-            let account_path = accounts_dir.join(format!("{}.json", account_data.username));
-            let json = serde_json::to_string_pretty(&account_data).unwrap_or_default();
-            tokio::fs::write(&account_path, json)
-                .await
-                .map_err(|e| e.to_string())?;
-
-            Ok(LoginResult {
-                account: AccountInfo::from(account_data),
-                is_needs_otp: false,
-            })
-        }
-        auth::alt::Account::NeedsOTP => Ok(LoginResult {
-            account: AccountInfo {
-                access_token: None,
-                uuid: String::new(),
-                username: String::new(),
-                nice_username: String::new(),
-                account_type: "LittleSkin".to_string(),
-                needs_refresh: false,
-            },
-            is_needs_otp: true,
-        }),
-    }
-}
+// login_littleskin is now handled by login_yggdrasil with auth_type="LittleSkin"
 
 #[tauri::command]
 pub async fn logout_account(
@@ -373,16 +362,7 @@ pub async fn refresh_account(
     };
 
     // Save updated account data
-    let accounts_dir = ql_core::LAUNCHER_DIR.join("accounts");
-    tokio::fs::create_dir_all(&accounts_dir)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let account_path = accounts_dir.join(format!("{}.json", account_data.username));
-    let json = serde_json::to_string_pretty(&account_data).unwrap_or_default();
-    tokio::fs::write(&account_path, json)
-        .await
-        .map_err(|e| e.to_string())?;
+    save_account_to_disk(&account_data).await?;
 
     Ok(AccountInfo::from(account_data))
 }
