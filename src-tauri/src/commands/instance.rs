@@ -1,11 +1,6 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use ql_core::{
-    DownloadProgress, Instance, InstanceConfigJson, InstanceKind, IntoIoError, IntoJsonError,
-    IoError, ListEntry, ListEntryKind,
-    LAUNCHER_DIR, file_utils::exists,
-};
+use ql_core::{DownloadProgress, Instance, InstanceConfigJson, InstanceKind, ListEntry, ListEntryKind, LAUNCHER_DIR};
 use ql_instances::{
     self,
     auth::AccountData,
@@ -202,7 +197,7 @@ pub async fn save_instance_config(
 #[tauri::command]
 pub async fn launch_game(
     app: AppHandle,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, Arc<AppState>>,
     name: String,
     kind: InstanceKind,
     account_data: Option<AccountDataSerializable>,
@@ -284,7 +279,7 @@ pub async fn launch_game(
 
 #[tauri::command]
 pub async fn kill_game(
-    state: tauri::State<'_, AppState>,
+    state: State<'_, Arc<AppState>>,
     name: String,
 ) -> Result<bool, String> {
     let mut processes = state.running_processes.lock().await;

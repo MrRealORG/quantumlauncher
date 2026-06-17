@@ -81,7 +81,7 @@ pub async fn delete_server(
 #[tauri::command]
 pub async fn run_server(
     app: AppHandle,
-    state: tauri::State<'_, AppState>,
+    state: State<'_, Arc<AppState>>,
     name: String,
 ) -> Result<RunServerResult, String> {
     let (sender, receiver) = std::sync::mpsc::channel();
@@ -157,13 +157,12 @@ pub async fn save_server_properties(
 
 #[tauri::command]
 pub async fn send_server_command(
-    state: tauri::State<'_, AppState>,
+    state: State<'_, Arc<AppState>>,
     name: String,
     command: String,
 ) -> Result<bool, String> {
     let processes = state.running_processes.lock().await;
     if let Some(process) = processes.get(&name) {
-        use std::io::Write;
         use tokio::io::AsyncWriteExt;
 
         let mut child = process.child.lock().await;

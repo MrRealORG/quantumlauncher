@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use ql_instances::auth::{self, AccountData, AccountType};
 use serde::{Deserialize, Serialize};
@@ -53,9 +54,6 @@ pub struct LoginResult {
 
 #[tauri::command]
 pub async fn get_accounts() -> Result<HashMap<String, AccountInfo>, String> {
-    // We need to read account info from the instances config and profiles.
-    // The ql_instances crate uses the keyring for refresh tokens,
-    // so we read the profiles.json for the list of accounts.
     let accounts_dir = ql_core::LAUNCHER_DIR.join("accounts");
 
     if !tokio::fs::try_exists(&accounts_dir)
@@ -90,30 +88,28 @@ pub async fn get_accounts() -> Result<HashMap<String, AccountInfo>, String> {
     Ok(accounts)
 }
 
-/// Full Microsoft device code response stored for polling.
-#[derive(Debug, Clone)]
-struct StoredMsAuth {
-    user_code: String,
-    device_code: String,
-    expires_in: isize,
+/// Extract device_code from AuthCodeResponse via serde JSON (field is private).
+fn extract_device_code(resp: &auth::ms::AuthCodeResponse) -> String {
+    let json = serde_json::to_value(resp).unwrap_or_default();
+    json.get("device_code")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 #[tauri::command]
 pub async fn login_microsoft(
-    app: AppHandle,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<AppState>>,
 ) -> Result<MsDeviceCodeResponse, String> {
     let auth_code = auth::ms::login_1_link()
         .await
         .map_err(|e| e.to_string())?;
 
-    // Store the device_code keyed by user_code for later polling
+    // Extract device_code and store it keyed by user_code for later polling
+    let device_code = extract_device_code(&auth_code);
     {
         let mut codes = state.ms_device_codes.lock().await;
-        codes.insert(
-            auth_code.user_code.clone(),
-            auth_code.device_code.clone(),
-        );
+        codes.insert(auth_code.user_code.clone(), device_code);
     }
 
     Ok(MsDeviceCodeResponse {
@@ -127,11 +123,9 @@ pub async fn login_microsoft(
 #[tauri::command]
 pub async fn poll_microsoft_login(
     app: AppHandle,
-    state: State<'_, AppState>,
+    state: State<'_, Arc<AppState>>,
     user_code: String,
 ) -> Result<Option<AccountInfo>, String> {
-    use ql_core::CLIENT;
-
     // Retrieve stored device_code
     let device_code = {
         let codes = state.ms_device_codes.lock().await;
@@ -142,7 +136,7 @@ pub async fn poll_microsoft_login(
     };
 
     // Single poll attempt (frontend handles the interval)
-    let code_resp = CLIENT
+    let code_resp = ql_core::CLIENT
         .post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token")
         .form(&[
             ("client_id", auth::ms::CLIENT_ID),
@@ -161,15 +155,13 @@ pub async fn poll_microsoft_login(
             let error_code = error["error"].as_str().unwrap_or("");
             match error_code {
                 "authorization_declined" | "expired_token" | "invalid_grant" => {
-                    // Clean up stored code
                     state.ms_device_codes.lock().await.remove(&user_code);
                     return Err("Microsoft auth was declined or expired. Please try again.".to_string());
                 }
-                _ => Ok(None), // Still pending
+                _ => Ok(None),
             }
         }
         reqwest::StatusCode::OK => {
-            // Clean up stored code
             state.ms_device_codes.lock().await.remove(&user_code);
 
             let text = code_resp.text().await.map_err(|e| e.to_string())?;
@@ -189,7 +181,6 @@ pub async fn poll_microsoft_login(
                 .await
                 .map_err(|e| e.to_string())?;
 
-            // Save account to disk
             save_account_to_disk(&account_data).await?;
 
             Ok(Some(AccountInfo::from(account_data)))
@@ -214,14 +205,13 @@ pub async fn login_offline(
             0,
             0,
             2,
-            // Simple hash of username for offline UUID
             simple_hash(&username)
         ),
         refresh_token: String::new(),
         needs_refresh: false,
         username: username.clone(),
         nice_username: username,
-        account_type: AccountType::Microsoft, // Offline uses MS type internally
+        account_type: AccountType::Microsoft,
     };
 
     Ok(AccountInfo::from(account))
@@ -246,7 +236,7 @@ pub async fn login_yggdrasil(
     username: String,
     password: String,
     auth_type: String,
-    auth_url: Option<String>,
+    _auth_url: Option<String>,
 ) -> Result<LoginResult, String> {
     let account_type = match auth_type.as_str() {
         "LittleSkin" => AccountType::LittleSkin,
@@ -282,10 +272,6 @@ pub async fn login_yggdrasil(
     }
 }
 
-// login_littleskin merged into login_yggdrasil above (same logic, different AccountType)
-
-// login_littleskin is now handled by login_yggdrasil with auth_type="LittleSkin"
-
 #[tauri::command]
 pub async fn logout_account(
     username: String,
@@ -299,7 +285,6 @@ pub async fn logout_account(
 
     auth::logout(&username, account_type).map_err(|e| e.to_string())?;
 
-    // Also remove the account JSON file if it exists
     let account_path = ql_core::LAUNCHER_DIR
         .join("accounts")
         .join(format!("{}.json", username));
@@ -313,14 +298,6 @@ pub async fn logout_account(
             .map_err(|e| e.to_string())?;
     }
 
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn select_account(
-    _username: String,
-) -> Result<(), String> {
-    // Account selection is handled client-side; this is a no-op on the backend.
     Ok(())
 }
 
@@ -361,7 +338,6 @@ pub async fn refresh_account(
         }
     };
 
-    // Save updated account data
     save_account_to_disk(&account_data).await?;
 
     Ok(AccountInfo::from(account_data))
@@ -369,7 +345,6 @@ pub async fn refresh_account(
 
 // ---------- Helpers ----------
 
-/// Simple hash function for generating offline UUIDs from usernames.
 fn simple_hash(s: &str) -> u64 {
     let mut hash: u64 = 0;
     for c in s.chars() {

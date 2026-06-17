@@ -1,14 +1,14 @@
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use ql_core::{Instance, InstanceKind, Loader};
 use ql_mod_manager::store::{
-    ModError, ModId, ModIndex, Query, QueryType, SearchMod, SearchResult, StoreBackendType,
-    add_files, check_for_updates, delete_mods, download_mod, download_mods_bulk,
-    get_categories, get_description, get_info, search, toggle_mods,
+    ModId, ModIndex, Query, QueryType, SearchMod, SearchResult, StoreBackendType,
+    add_files, check_for_updates, delete_mods, get_categories, get_description, get_info,
+    search, toggle_mods,
     update::{apply_updates, ChangelogFile},
+    download_mod as ql_download_mod, download_mods_bulk as ql_download_mods_bulk,
 };
-use ql_mod_manager::store::modpack::install_modpack;
+use ql_mod_manager::store::modpack::install_modpack as ql_install_modpack;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
@@ -200,7 +200,7 @@ pub async fn get_mod_description(
 ) -> Result<(String, String), String> {
     let mod_id = parse_mod_id(&id);
     let (returned_id, description) = get_description(mod_id).await.map_err(|e| e.to_string())?;
-    Ok((returned_id.to_string(), description))
+    Ok((returned_id.get_internal_id().to_string(), description))
 }
 
 #[tauri::command]
@@ -222,7 +222,7 @@ pub async fn download_mod(
         }
     });
 
-    download_mod(&mod_id, &instance, Some(sender)).await.map_err(|e| e.to_string())?;
+    ql_download_mod(&mod_id, &instance, Some(sender)).await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -244,7 +244,7 @@ pub async fn download_mods_bulk(
         }
     });
 
-    download_mods_bulk(mod_ids, instance, Some(sender))
+    ql_download_mods_bulk(mod_ids, instance, Some(sender))
         .await
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -262,7 +262,7 @@ pub async fn get_local_mods(
         .mods
         .into_iter()
         .map(|(id, config)| LocalModSerializable {
-            id: id.to_string(),
+            id: id.get_internal_id().to_string(),
             name: config.name,
             description: config.description,
             enabled: config.enabled,
@@ -311,7 +311,7 @@ pub async fn check_mod_updates(
     Ok(updates
         .into_iter()
         .map(|(id, version)| ModUpdate {
-            mod_id: id.to_string(),
+            mod_id: id.get_internal_id().to_string(),
             new_version: version,
         })
         .collect())
@@ -371,7 +371,7 @@ pub async fn install_modpack(
         }
     });
 
-    install_modpack(file, filename, instance, Some(&sender))
+    ql_install_modpack(file, filename, instance, Some(&sender))
         .await
         .map_err(|e| e.to_string())?;
     Ok(())

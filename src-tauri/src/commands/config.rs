@@ -1,7 +1,8 @@
+use std::collections::HashMap;
+
 use ql_core::{
-    clean, file_utils,
+    clean,
     json::GlobalSettings,
-    LAUNCHER_CACHE_DIR,
 };
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +16,7 @@ pub struct LauncherConfig {
     pub pre_launch_prefix: Vec<String>,
     pub close_on_start: bool,
     #[serde(flatten)]
-    pub extra: serde_json::HashMap<String, serde_json::Value>,
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 // ---------- Tauri Commands ----------

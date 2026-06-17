@@ -5,6 +5,8 @@ mod commands;
 mod events;
 mod state;
 
+use std::sync::Arc;
+
 use state::AppState;
 
 use tauri::{
@@ -21,7 +23,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .manage(AppState::new())
+        .manage(Arc::new(AppState::new()))
         .setup(|app| {
             // Ensure the launcher directory exists on first run
             let _ = &*ql_core::LAUNCHER_DIR;

@@ -62,8 +62,7 @@ pub async fn install_loader(
         Some(Arc::new(sender)),
         version,
     )
-    .await
-    .map_err(|e| e)?;
+    .await?;
 
     Ok(LoaderInstallStatus::from(result))
 }
@@ -79,8 +78,7 @@ pub async fn uninstall_loader(
     };
 
     loaders::uninstall_loader(instance)
-        .await
-        .map_err(|e| e)?;
+        .await?;
     Ok(())
 }
 
