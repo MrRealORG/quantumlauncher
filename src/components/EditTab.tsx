@@ -1,15 +1,26 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Save, RotateCcw, Info } from "lucide-react";
+import { Save, RotateCcw, Info, FolderOpen, Trash2, Pencil, Check, X } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import Button from "@/components/common/Button";
 import Input from "@/components/common/Input";
 import Select from "@/components/common/Select";
+import ConfirmModal from "@/components/modals/ConfirmModal";
 import type { InstanceConfigJson, PreLaunchPrefixMode } from "@/types";
 
 export default function EditTab() {
-  const { selectedInstance, instanceConfig, updateInstanceConfig, addToast } = useAppStore();
+  const {
+    selectedInstance,
+    instanceConfig,
+    updateInstanceConfig,
+    deleteInstance,
+    renameInstance,
+    addToast,
+  } = useAppStore();
   const [localConfig, setLocalConfig] = useState<InstanceConfigJson | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
@@ -18,6 +29,13 @@ export default function EditTab() {
       setHasChanges(false);
     }
   }, [instanceConfig]);
+
+  useEffect(() => {
+    if (selectedInstance) {
+      setRenameValue(selectedInstance.name);
+    }
+    setIsRenaming(false);
+  }, [selectedInstance]);
 
   const updateLocal = useCallback(
     (partial: Partial<InstanceConfigJson>) => {
@@ -47,6 +65,52 @@ export default function EditTab() {
     }
   }, [localConfig, hasChanges, updateInstanceConfig, addToast]);
 
+  const handleBrowseJava = useCallback(async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
+        title: "Select Java Executable",
+        filters: [
+          {
+            name: "Java",
+            extensions: ["exe", "bat", "cmd", "sh"],
+          },
+        ],
+        multiple: false,
+      });
+      if (selected) {
+        const path = Array.isArray(selected) ? selected[0] : selected;
+        updateLocal({ java_override: path });
+      }
+    } catch (err) {
+      addToast("Failed to open file dialog", "error");
+    }
+  }, [updateLocal, addToast]);
+
+  const handleRename = useCallback(async () => {
+    if (!selectedInstance || !renameValue.trim() || renameValue.trim() === selectedInstance.name) {
+      setIsRenaming(false);
+      return;
+    }
+    try {
+      await renameInstance(selectedInstance.name, renameValue.trim(), selectedInstance.kind);
+      setIsRenaming(false);
+    } catch {
+      addToast("Failed to rename instance", "error");
+      setIsRenaming(false);
+    }
+  }, [selectedInstance, renameValue, renameInstance, addToast]);
+
+  const handleDelete = useCallback(async () => {
+    if (!selectedInstance) return;
+    try {
+      await deleteInstance(selectedInstance.name, selectedInstance.kind);
+    } catch {
+      addToast("Failed to delete instance", "error");
+    }
+    setConfirmDelete(false);
+  }, [selectedInstance, deleteInstance, addToast]);
+
   if (!selectedInstance || !localConfig) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -68,11 +132,57 @@ export default function EditTab() {
   return (
     <div className="flex-1 overflow-y-auto p-4">
       <div className="max-w-lg mx-auto space-y-4">
+        {/* Instance Name Header */}
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-semibold text-theme-text">
-            Instance Configuration
-          </h2>
-          <div className="flex gap-1.5">
+          <div className="flex items-center gap-2 min-w-0">
+            {isRenaming ? (
+              <div className="flex items-center gap-1.5 min-w-0">
+                <input
+                  type="text"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleRename();
+                    if (e.key === "Escape") {
+                      setIsRenaming(false);
+                      setRenameValue(selectedInstance.name);
+                    }
+                  }}
+                  autoFocus
+                  className="text-sm font-semibold bg-theme-dark border border-theme-mid text-theme-text rounded px-2 py-0.5 outline-none min-w-0 font-mono"
+                />
+                <button
+                  onClick={handleRename}
+                  className="p-0.5 text-green-500 hover:text-green-400 transition-colors"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => {
+                    setIsRenaming(false);
+                    setRenameValue(selectedInstance.name);
+                  }}
+                  className="p-0.5 text-theme-text-muted hover:text-theme-text transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <>
+                <h2 className="text-sm font-semibold text-theme-text font-mono truncate">
+                  {selectedInstance.name}
+                </h2>
+                <button
+                  onClick={() => setIsRenaming(true)}
+                  className="p-0.5 text-theme-text-muted hover:text-theme-text transition-colors flex-shrink-0"
+                  title="Rename instance"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+              </>
+            )}
+          </div>
+          <div className="flex gap-1.5 flex-shrink-0">
             <Button
               variant="ghost"
               size="sm"
@@ -96,6 +206,18 @@ export default function EditTab() {
               Save
             </Button>
           </div>
+        </div>
+
+        {/* Instance type badge */}
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-theme-mid/20 text-theme-mid">
+            {selectedInstance.kind}
+          </span>
+          {typeof instanceConfig?.version === "string" && (
+            <span className="text-[10px] text-theme-text-muted">
+              Minecraft {instanceConfig.version}
+            </span>
+          )}
         </div>
 
         {/* RAM Allocation */}
@@ -155,20 +277,30 @@ export default function EditTab() {
           />
         </div>
 
-        {/* Java Override Path */}
+        {/* Java Override Path with Browse button */}
         <div>
           <label className="block text-xs font-medium text-theme-text-muted mb-1.5">
             Custom Java Path
           </label>
-          <Input
-            value={localConfig.java_override || ""}
-            onChange={(e) =>
-              updateLocal({
-                java_override: e.target.value || null,
-              })
-            }
-            placeholder="Leave empty for automatic"
-          />
+          <div className="flex items-center gap-1.5">
+            <Input
+              value={localConfig.java_override || ""}
+              onChange={(e) =>
+                updateLocal({
+                  java_override: e.target.value || null,
+                })
+              }
+              placeholder="Leave empty for automatic"
+              className="flex-1 min-w-0"
+            />
+            <button
+              onClick={handleBrowseJava}
+              className="px-2 py-1.5 text-theme-text-muted hover:text-theme-text hover:bg-theme-second-dark/60 rounded-md transition-colors flex-shrink-0"
+              title="Browse for Java executable"
+            >
+              <FolderOpen className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Java Args */}
@@ -337,7 +469,30 @@ export default function EditTab() {
             />
           </button>
         </div>
+
+        {/* Danger Zone */}
+        <div className="border-t border-theme-second-dark pt-4 mt-4">
+          <h3 className="text-xs font-semibold text-theme-error/80 mb-2">Danger Zone</h3>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<Trash2 className="w-3.5 h-3.5" />}
+            className="text-theme-error hover:text-theme-error hover:bg-theme-error/10"
+            onClick={() => setConfirmDelete(true)}
+          >
+            Delete Instance
+          </Button>
+        </div>
       </div>
+
+      {/* Confirm Delete */}
+      <ConfirmModal
+        open={confirmDelete}
+        title="Delete Instance"
+        message={`Are you sure you want to delete "${selectedInstance.name}"? This cannot be undone. All files will be permanently removed.`}
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }
