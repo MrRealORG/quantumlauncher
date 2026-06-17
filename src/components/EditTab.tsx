@@ -302,14 +302,14 @@ export default function EditTab() {
               })
             }
             className={`
-              w-9 h-5 rounded-full transition-colors relative
+              w-9 h-5 rounded-full transition-colors duration-200 relative
               ${localConfig.global_java_args_enable !== false ? "bg-theme-mid" : "bg-theme-second-dark"}
             `}
           >
             <div
               className={`
-                w-3.5 h-3.5 bg-white rounded-full absolute top-0.5 transition-transform
-                ${localConfig.global_java_args_enable !== false ? "translate-x-4.5 left-0" : "left-0.5"}
+                w-3.5 h-3.5 bg-white rounded-full absolute top-0.5 transition-all duration-200
+                ${localConfig.global_java_args_enable !== false ? "left-[18px]" : "left-0.5"}
               `}
             />
           </button>
@@ -325,14 +325,14 @@ export default function EditTab() {
               updateLocal({ enable_logger: !localConfig.enable_logger })
             }
             className={`
-              w-9 h-5 rounded-full transition-colors relative
+              w-9 h-5 rounded-full transition-colors duration-200 relative
               ${localConfig.enable_logger !== false ? "bg-theme-mid" : "bg-theme-second-dark"}
             `}
           >
             <div
               className={`
-                w-3.5 h-3.5 bg-white rounded-full absolute top-0.5 transition-transform
-                ${localConfig.enable_logger !== false ? "translate-x-4.5 left-0" : "left-0.5"}
+                w-3.5 h-3.5 bg-white rounded-full absolute top-0.5 transition-all duration-200
+                ${localConfig.enable_logger !== false ? "left-[18px]" : "left-0.5"}
               `}
             />
           </button>

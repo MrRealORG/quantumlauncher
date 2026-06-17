@@ -7,7 +7,7 @@ import Input from "@/components/common/Input";
 import Select from "@/components/common/Select";
 import TabBar from "@/components/common/TabBar";
 import { tauriCommands } from "@/utils/tauri";
-import type { ThemeColor, ThemeLightness, AfterLaunchBehavior, PresenceStatusDisplayType } from "@/types";
+import type { ThemeColor, ThemeLightness, AfterLaunchBehavior, PresenceStatusDisplayType, LauncherConfig } from "@/types";
 
 const THEME_COLORS: ThemeColor[] = ["Purple", "Brown", "Sky Blue", "Catppuccin", "Teal", "Halloween", "Adwaita"];
 
@@ -37,11 +37,58 @@ const settingsTabs = [
   { id: "about", label: "About" },
 ];
 
+/** Reusable toggle component matching the iced UI style. */
+function Toggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <button
+      onClick={onChange}
+      className={`w-9 h-5 rounded-full transition-colors duration-200 relative cursor-pointer ${
+        checked ? "bg-theme-mid" : "bg-theme-second-dark"
+      }`}
+    >
+      <div
+        className={`w-3.5 h-3.5 bg-white rounded-full absolute top-0.5 transition-all duration-200 ${
+          checked ? "left-[18px]" : "left-0.5"
+        }`}
+      />
+    </button>
+  );
+}
+
+/** Helper to create a settings section with label + description. */
+function SettingRow({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between py-2">
+      <div className="flex-1 mr-3">
+        <label className="text-xs font-medium text-theme-text-muted block">{label}</label>
+        {description && (
+          <p className="text-[10px] text-theme-text-muted/70 mt-0.5">{description}</p>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export default function SettingsModal() {
   const screen = useAppStore((s) => s.screen);
   const setScreen = useAppStore((s) => s.setScreen);
   const config = useAppStore((s) => s.config);
-  const updateConfig = useAppStore((s) => s.updateConfig);
+  const storeUpdateConfig = useAppStore((s) => s.updateConfig);
   const addToast = useAppStore((s) => s.addToast);
   const themeColor = useThemeStore((s) => s.themeColor);
   const lightnessMode = useThemeStore((s) => s.lightnessMode);
@@ -54,22 +101,29 @@ export default function SettingsModal() {
   const open = screen.type === "settings";
   const handleClose = useCallback(() => setScreen({ type: "main" }), [setScreen]);
 
+  /** Wrapper for uc that allows partial nested objects.
+   *  The runtime deep merge handles missing fields correctly. */
+  const uc = useCallback(
+    (partial: Record<string, unknown>) => storeUpdateConfig(partial as Partial<LauncherConfig>),
+    [storeUpdateConfig]
+  );
+
   const handleThemeColor = useCallback(
     (color: string) => {
       const tc = color as ThemeColor;
       setThemeColor(tc);
-      updateConfig({ ui_theme: tc });
+      uc({ ui_theme: tc });
     },
-    [setThemeColor, updateConfig]
+    [setThemeColor, uc]
   );
 
   const handleLightness = useCallback(
     (mode: string) => {
       const m = mode as ThemeLightness;
       setLightnessMode(m);
-      updateConfig({ ui_mode: m });
+      uc({ ui_mode: m });
     },
-    [setLightnessMode, updateConfig]
+    [setLightnessMode, uc]
   );
 
   const handleScale = useCallback(
@@ -77,10 +131,10 @@ export default function SettingsModal() {
       const scale = parseFloat(val);
       if (!isNaN(scale) && scale >= 0.5 && scale <= 2.0) {
         setUiScale(scale);
-        updateConfig({ ui_scale: scale });
+        uc({ ui_scale: scale });
       }
     },
-    [setUiScale, updateConfig]
+    [setUiScale, uc]
   );
 
   const renderAppearance = () => (
@@ -117,7 +171,9 @@ export default function SettingsModal() {
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-theme-text-muted mb-1.5">UI Scale: {config?.ui_scale?.toFixed(2) || "1.00"}</label>
+        <label className="block text-xs font-medium text-theme-text-muted mb-1.5">
+          UI Scale: {config?.ui_scale?.toFixed(2) || "1.00"}
+        </label>
         <input
           type="range"
           min={0.5}
@@ -142,25 +198,56 @@ export default function SettingsModal() {
           step={0.05}
           value={config?.ui?.window_opacity || 0.9}
           onChange={(e) =>
-            updateConfig({
-              ui: { ...(config?.ui || { window_decorations: "system" as const, window_opacity: 0.9, after_game_opens: "do_nothing" as const }), window_opacity: parseFloat(e.target.value) },
+            uc({
+              ui: { window_opacity: parseFloat(e.target.value) },
             })
           }
           className="w-full h-1.5 bg-theme-second-dark rounded-full appearance-none cursor-pointer
             [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5
             [&::-webkit-slider-thumb]:bg-theme-mid [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer"
         />
+        <p className="text-[10px] text-theme-text-muted mt-1">
+          Requires window decorations to be enabled.
+        </p>
       </div>
 
-      <div className="flex items-center justify-between py-2">
-        <label className="text-xs font-medium text-theme-text-muted">Antialiasing</label>
-        <button
-          onClick={() => updateConfig({ ui_antialiasing: !config?.ui_antialiasing })}
-          className={`w-9 h-5 rounded-full transition-colors relative ${config?.ui_antialiasing !== false ? "bg-theme-mid" : "bg-theme-second-dark"}`}
-        >
-          <div className={`w-3.5 h-3.5 bg-white rounded-full absolute top-0.5 transition-transform ${config?.ui_antialiasing !== false ? "translate-x-4.5 left-0" : "left-0.5"}`} />
-        </button>
-      </div>
+      <SettingRow
+        label="UI Antialiasing"
+        description="Smoothes text and UI elements (requires restart)"
+      >
+        <Toggle
+          checked={config?.ui_antialiasing !== false}
+          onChange={() => uc({ ui_antialiasing: !config?.ui_antialiasing })}
+        />
+      </SettingRow>
+
+      <SettingRow
+        label="Remember Window Size"
+        description="Save and restore the launcher window size on startup"
+      >
+        <Toggle
+          checked={config?.window?.save_window_size !== false}
+          onChange={() =>
+            uc({
+              window: { save_window_size: !(config?.window?.save_window_size !== false) },
+            })
+          }
+        />
+      </SettingRow>
+
+      <SettingRow
+        label="Remember Last Selected Instance"
+        description="Auto-select the last used instance on startup"
+      >
+        <Toggle
+          checked={config?.persistent?.selected_remembered !== false}
+          onChange={() =>
+            uc({
+              persistent: { selected_remembered: !(config?.persistent?.selected_remembered !== false) },
+            })
+          }
+        />
+      </SettingRow>
 
       <div>
         <label className="block text-xs font-medium text-theme-text-muted mb-2">After Game Opens</label>
@@ -168,11 +255,35 @@ export default function SettingsModal() {
           options={AFTER_LAUNCH.map((a) => ({ value: a.value, label: a.label }))}
           value={config?.ui?.after_game_opens || "do_nothing"}
           onChange={(v) =>
-            updateConfig({
-              ui: { ...(config?.ui || { window_decorations: "system" as const, window_opacity: 0.9, after_game_opens: "do_nothing" as const }), after_game_opens: v as AfterLaunchBehavior },
+            uc({
+              ui: { after_game_opens: v as AfterLaunchBehavior },
             })
           }
         />
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-theme-text-muted mb-1.5">
+          UI Idle FPS: {config?.ui?.idle_fps || 2}
+        </label>
+        <input
+          type="range"
+          min={2}
+          max={20}
+          step={1}
+          value={config?.ui?.idle_fps || 2}
+          onChange={(e) =>
+            uc({
+              ui: { idle_fps: parseInt(e.target.value) },
+            })
+          }
+          className="w-full h-1.5 bg-theme-second-dark rounded-full appearance-none cursor-pointer
+            [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5
+            [&::-webkit-slider-thumb]:bg-theme-mid [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer"
+        />
+        <p className="text-[10px] text-theme-text-muted mt-1">
+          Lower values save CPU when the launcher is idle.
+        </p>
       </div>
     </div>
   );
@@ -187,8 +298,8 @@ export default function SettingsModal() {
             value={config?.global_settings?.window_width?.toString() || ""}
             onChange={(e) => {
               const val = parseInt(e.target.value);
-              updateConfig({
-                global_settings: { ...(config?.global_settings || {}), window_width: isNaN(val) ? null : val },
+              uc({
+                global_settings: { window_width: isNaN(val) ? null : val },
               });
             }}
             placeholder="Auto"
@@ -201,8 +312,8 @@ export default function SettingsModal() {
             value={config?.global_settings?.window_height?.toString() || ""}
             onChange={(e) => {
               const val = parseInt(e.target.value);
-              updateConfig({
-                global_settings: { ...(config?.global_settings || {}), window_height: isNaN(val) ? null : val },
+              uc({
+                global_settings: { window_height: isNaN(val) ? null : val },
               });
             }}
             placeholder="Auto"
@@ -215,7 +326,7 @@ export default function SettingsModal() {
         <Input
           value={config?.extra_java_args?.join(" ") || ""}
           onChange={(e) =>
-            updateConfig({
+            uc({
               extra_java_args: e.target.value.trim() ? e.target.value.trim().split(/\s+/) : null,
             })
           }
@@ -228,27 +339,46 @@ export default function SettingsModal() {
         <Input
           value={config?.global_settings?.pre_launch_prefix?.join(" ") || ""}
           onChange={(e) =>
-            updateConfig({
-              global_settings: { ...(config?.global_settings || {}), pre_launch_prefix: e.target.value.trim() ? e.target.value.trim().split(/\s+/) : null },
+            uc({
+              global_settings: {
+                pre_launch_prefix: e.target.value.trim() ? e.target.value.trim().split(/\s+/) : null,
+              },
             })
           }
           placeholder="prime-run"
         />
+        <p className="text-[10px] text-theme-text-muted mt-1">
+          Commands prepended to the launch command (e.g., for GPU selection via prime-run).
+        </p>
       </div>
+
+      <SettingRow
+        label="Write Mod Update Changelog"
+        description="Write a changelog.txt when mods are updated"
+      >
+        <Toggle
+          checked={config?.persistent?.write_mod_update_changelog !== false}
+          onChange={() =>
+            uc({
+              persistent: { write_mod_update_changelog: !(config?.persistent?.write_mod_update_changelog !== false) },
+            })
+          }
+        />
+      </SettingRow>
     </div>
   );
 
   const renderLauncher = () => (
     <div className="space-y-5">
-      <div className="flex items-center justify-between py-2">
-        <label className="text-xs font-medium text-theme-text-muted">Enable Caching</label>
-        <button
-          onClick={() => updateConfig({ do_cache: !config?.do_cache })}
-          className={`w-9 h-5 rounded-full transition-colors relative ${config?.do_cache !== false ? "bg-theme-mid" : "bg-theme-second-dark"}`}
-        >
-          <div className={`w-3.5 h-3.5 bg-white rounded-full absolute top-0.5 transition-transform ${config?.do_cache !== false ? "translate-x-4.5 left-0" : "left-0.5"}`} />
-        </button>
-      </div>
+      <SettingRow
+        label="Cache Downloaded Files"
+        description="Save downloaded files to disk (requires restart)"
+      >
+        <Toggle
+          checked={config?.do_cache !== false}
+          onChange={() => uc({ do_cache: !config?.do_cache })}
+        />
+      </SettingRow>
 
       <div className="space-y-2">
         <Button
@@ -279,7 +409,7 @@ export default function SettingsModal() {
             }
           }}
         >
-          Clear Cache
+          Clear Download Cache
         </Button>
         <Button
           variant="secondary"
@@ -294,7 +424,7 @@ export default function SettingsModal() {
             }
           }}
         >
-          Clean Assets
+          Clean Unused Assets
         </Button>
       </div>
     </div>
@@ -302,19 +432,19 @@ export default function SettingsModal() {
 
   const renderDiscord = () => (
     <div className="space-y-5">
-      <div className="flex items-center justify-between py-2">
-        <label className="text-xs font-medium text-theme-text-muted">Enable Discord Rich Presence</label>
-        <button
-          onClick={() =>
-            updateConfig({
-              discord_rpc: { ...(config?.discord_rpc || { enable: false, basic: {}, on_gameopen: {}, on_gameexit: {}, status_display_type: "Name" as const, update_on_game_open: true, competing: false }), enable: !config?.discord_rpc?.enable },
+      <SettingRow
+        label="Enable Discord Rich Presence"
+        description="Show current activity in Discord status"
+      >
+        <Toggle
+          checked={config?.discord_rpc?.enable === true}
+          onChange={() =>
+            uc({
+              discord_rpc: { enable: !config?.discord_rpc?.enable },
             })
           }
-          className={`w-9 h-5 rounded-full transition-colors relative ${config?.discord_rpc?.enable ? "bg-theme-mid" : "bg-theme-second-dark"}`}
-        >
-          <div className={`w-3.5 h-3.5 bg-white rounded-full absolute top-0.5 transition-transform ${config?.discord_rpc?.enable ? "translate-x-4.5 left-0" : "left-0.5"}`} />
-        </button>
-      </div>
+        />
+      </SettingRow>
 
       <div>
         <label className="block text-xs font-medium text-theme-text-muted mb-1.5">Status Display Type</label>
@@ -322,36 +452,49 @@ export default function SettingsModal() {
           options={STATUS_DISPLAY.map((s) => ({ value: s.value, label: s.label }))}
           value={config?.discord_rpc?.status_display_type || "Name"}
           onChange={(v) =>
-            updateConfig({
-              discord_rpc: { ...(config?.discord_rpc || { enable: false, basic: {}, on_gameopen: {}, on_gameexit: {}, status_display_type: "Name" as const, update_on_game_open: true, competing: false }), status_display_type: v as PresenceStatusDisplayType },
+            uc({
+              discord_rpc: { status_display_type: v as PresenceStatusDisplayType },
             })
           }
         />
       </div>
 
-      <div className="flex items-center justify-between py-2">
-        <label className="text-xs font-medium text-theme-text-muted">Update on Game Open</label>
-        <button
-          onClick={() =>
-            updateConfig({
-              discord_rpc: { ...(config?.discord_rpc || { enable: false, basic: {}, on_gameopen: {}, on_gameexit: {}, status_display_type: "Name" as const, update_on_game_open: true, competing: false }), update_on_game_open: !config?.discord_rpc?.update_on_game_open },
+      <SettingRow
+        label="Update on Game Open"
+        description="Change presence when game launches or exits"
+      >
+        <Toggle
+          checked={config?.discord_rpc?.update_on_game_open !== false}
+          onChange={() =>
+            uc({
+              discord_rpc: { update_on_game_open: !config?.discord_rpc?.update_on_game_open },
             })
           }
-          className={`w-9 h-5 rounded-full transition-colors relative ${config?.discord_rpc?.update_on_game_open !== false ? "bg-theme-mid" : "bg-theme-second-dark"}`}
-        >
-          <div className={`w-3.5 h-3.5 bg-white rounded-full absolute top-0.5 transition-transform ${config?.discord_rpc?.update_on_game_open !== false ? "translate-x-4.5 left-0" : "left-0.5"}`} />
-        </button>
-      </div>
+        />
+      </SettingRow>
+
+      <SettingRow
+        label="Competing Mode"
+        description="Show as 'competing' instead of 'playing' in Discord"
+      >
+        <Toggle
+          checked={config?.discord_rpc?.competing === true}
+          onChange={() =>
+            uc({
+              discord_rpc: { competing: !config?.discord_rpc?.competing },
+            })
+          }
+        />
+      </SettingRow>
 
       <div>
         <label className="block text-xs font-medium text-theme-text-muted mb-1.5">Basic Top Text</label>
         <Input
           value={config?.discord_rpc?.basic?.top_text || ""}
           onChange={(e) =>
-            updateConfig({
+            uc({
               discord_rpc: {
-                ...(config?.discord_rpc || { enable: false, basic: {}, on_gameopen: {}, on_gameexit: {}, status_display_type: "Name" as const, update_on_game_open: true, competing: false }),
-                basic: { ...(config?.discord_rpc?.basic || {}), top_text: e.target.value || null },
+                basic: { top_text: e.target.value || null },
               },
             })
           }
@@ -364,10 +507,9 @@ export default function SettingsModal() {
         <Input
           value={config?.discord_rpc?.basic?.top_text_url || ""}
           onChange={(e) =>
-            updateConfig({
+            uc({
               discord_rpc: {
-                ...(config?.discord_rpc || { enable: false, basic: {}, on_gameopen: {}, on_gameexit: {}, status_display_type: "Name" as const, update_on_game_open: true, competing: false }),
-                basic: { ...(config?.discord_rpc?.basic || {}), top_text_url: e.target.value || null },
+                basic: { top_text_url: e.target.value || null },
               },
             })
           }
@@ -380,13 +522,27 @@ export default function SettingsModal() {
         <Input
           value={config?.discord_rpc?.basic?.bottom_text || ""}
           onChange={(e) =>
-            updateConfig({
+            uc({
               discord_rpc: {
-                ...(config?.discord_rpc || { enable: false, basic: {}, on_gameopen: {}, on_gameexit: {}, status_display_type: "Name" as const, update_on_game_open: true, competing: false }),
-                basic: { ...(config?.discord_rpc?.basic || {}), bottom_text: e.target.value || null },
+                basic: { bottom_text: e.target.value || null },
               },
             })
           }
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-theme-text-muted mb-1.5">Basic Bottom Text URL</label>
+        <Input
+          value={config?.discord_rpc?.basic?.bottom_text_url || ""}
+          onChange={(e) =>
+            uc({
+              discord_rpc: {
+                basic: { bottom_text_url: e.target.value || null },
+              },
+            })
+          }
+          placeholder="https://..."
         />
       </div>
     </div>
@@ -396,17 +552,37 @@ export default function SettingsModal() {
     <div className="space-y-4 text-sm">
       <div className="text-center py-4">
         <h2 className="text-xl font-bold text-theme-text">PK Launcher</h2>
-        <p className="text-theme-text-muted text-xs mt-1">Version {config?.version || "unknown"}</p>
+        <p className="text-theme-text-muted text-xs mt-1">
+          Version {config?.version || "unknown"}
+        </p>
       </div>
       <p className="text-theme-text-muted text-xs leading-relaxed">
-        A Minecraft launcher with mod management, multi-instance support, and a beautiful themed interface.
-        Migrated from QuantumLauncher.
+        A Minecraft launcher with mod management, multi-instance support, and a beautiful themed
+        interface. Migrated from QuantumLauncher by Mrmayman.
       </p>
       <div className="flex flex-col gap-1.5">
-        <a href="https://github.com/mrmayman/quantumlauncher" target="_blank" rel="noreferrer" className="text-xs text-theme-mid hover:text-theme-accent transition-colors">
-          GitHub Repository
+        <a
+          href="https://github.com/MrRealORG/quantumlauncher"
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs text-theme-mid hover:text-theme-accent transition-colors"
+        >
+          GitHub Repository (Fork)
         </a>
-        <a href="https://mrmayman.github.io/quantumlauncher" target="_blank" rel="noreferrer" className="text-xs text-theme-mid hover:text-theme-accent transition-colors">
+        <a
+          href="https://github.com/mrmayman/quantumlauncher"
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs text-theme-mid hover:text-theme-accent transition-colors"
+        >
+          Upstream: QuantumLauncher
+        </a>
+        <a
+          href="https://mrmayman.github.io/quantumlauncher"
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs text-theme-mid hover:text-theme-accent transition-colors"
+        >
           Documentation
         </a>
       </div>
@@ -418,12 +594,18 @@ export default function SettingsModal() {
 
   const renderContent = () => {
     switch (activeTab) {
-      case "appearance": return renderAppearance();
-      case "game": return renderGame();
-      case "launcher": return renderLauncher();
-      case "discord": return renderDiscord();
-      case "about": return renderAbout();
-      default: return null;
+      case "appearance":
+        return renderAppearance();
+      case "game":
+        return renderGame();
+      case "launcher":
+        return renderLauncher();
+      case "discord":
+        return renderDiscord();
+      case "about":
+        return renderAbout();
+      default:
+        return null;
     }
   };
 
@@ -431,11 +613,13 @@ export default function SettingsModal() {
     <Modal open={open} onClose={handleClose} title="Settings" wide>
       <div>
         <div className="border-b border-theme-second-dark px-4 pt-3">
-          <TabBar tabs={settingsTabs} activeTab={activeTab} onTabChange={setActiveTab} />
+          <TabBar
+            tabs={settingsTabs}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+          />
         </div>
-        <div className="p-4 max-h-[500px] overflow-y-auto">
-          {renderContent()}
-        </div>
+        <div className="p-4 max-h-[500px] overflow-y-auto">{renderContent()}</div>
       </div>
     </Modal>
   );

@@ -14,6 +14,7 @@ import type {
   GenericProgress,
   ShortcutConfig,
   ModId,
+  LocalMod,
 } from "@/types";
 
 // ===== Error Handling =====
@@ -120,11 +121,11 @@ export const tauriCommands = {
   download_mod: (instance: Instance, modId: ModId) =>
     handleInvoke<void>("download_mod", { instance, modId }),
 
-  get_local_mods: (instance: Instance, queryType: QueryType) =>
-    handleInvoke<SearchMod[]>("get_local_mods", { instance, queryType }),
+  get_local_mods: (instance: Instance) =>
+    handleInvoke<LocalMod[]>("get_local_mods", { instanceName: instance.name, kind: instance.kind }),
 
-  toggle_mod: (instance: Instance, modName: string, enabled: boolean) =>
-    handleInvoke<void>("toggle_mod", { instance, modName, enabled }),
+  toggle_mod: (instance: Instance, modIds: string[]) =>
+    handleInvoke<void>("toggle_mod", { instanceName: instance.name, kind: instance.kind, ids: modIds }),
 
   delete_mod: (instance: Instance, modName: string, queryType: QueryType) =>
     handleInvoke<void>("delete_mod", { instance, modName, queryType }),

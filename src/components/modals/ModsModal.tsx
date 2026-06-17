@@ -29,6 +29,7 @@ import type {
   Category,
   ModId,
   Loader,
+  LocalMod,
 } from "@/types";
 
 const QUERY_TYPES: { id: QueryType; label: string }[] = [
@@ -59,7 +60,7 @@ export default function ModsModal() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
-  const [installedMods, setInstalledMods] = useState<SearchMod[]>([]);
+  const [installedMods, setInstalledMods] = useState<LocalMod[]>([]);
   const [loadingInstalled, setLoadingInstalled] = useState(false);
   const [selectedModIds, setSelectedModIds] = useState<Set<string>>(new Set());
 
@@ -80,11 +81,11 @@ export default function ModsModal() {
     if (contentTab !== "installed" || !selectedInstance) return;
     setLoadingInstalled(true);
     tauriCommands
-      .get_local_mods(selectedInstance, queryType)
+      .get_local_mods(selectedInstance)
       .then(setInstalledMods)
       .catch(() => setInstalledMods([]))
       .finally(() => setLoadingInstalled(false));
-  }, [contentTab, selectedInstance, queryType]);
+  }, [contentTab, selectedInstance]);
 
   // Search
   const handleSearch = useCallback(async () => {
@@ -411,17 +412,66 @@ export default function ModsModal() {
                 </div>
               ) : (
                 <div className="space-y-1">
-                  {installedMods.map((mod, i) => (
+                  {installedMods.map((mod) => (
                     <div
-                      key={`${mod.id}-${i}`}
-                      className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-theme-second-dark/30 transition-colors"
+                      key={mod.id}
+                      className={`flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-theme-second-dark/30 transition-colors ${!mod.enabled ? "opacity-50" : ""}`}
                     >
                       {mod.icon_url && (
-                        <img src={mod.icon_url} alt="" className="w-6 h-6 rounded" onError={(e) => (e.currentTarget.style.display = "none")} />
+                        <img src={mod.icon_url} alt="" className="w-6 h-6 rounded flex-shrink-0" onError={(e) => (e.currentTarget.style.display = "none")} />
                       )}
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm text-theme-text truncate">{mod.title}</div>
+                        <div className="text-sm text-theme-text truncate">{mod.name}</div>
+                        {mod.installed_version && (
+                          <div className="text-[10px] text-theme-text-muted truncate">
+                            {mod.project_type} · v{mod.installed_version}
+                          </div>
+                        )}
                       </div>
+                      {/* Enable/Disable toggle */}
+                      <button
+                        onClick={async () => {
+                          if (!selectedInstance) return;
+                          try {
+                            await tauriCommands.toggle_mod(selectedInstance, [mod.id]);
+                            setInstalledMods((prev) =>
+                              prev.map((m) =>
+                                m.id === mod.id ? { ...m, enabled: !m.enabled } : m
+                              )
+                            );
+                          } catch {
+                            addToast("Failed to toggle mod", "error");
+                          }
+                        }}
+                        title={mod.enabled ? "Disable" : "Enable"}
+                        className="flex-shrink-0 p-1 rounded hover:bg-theme-second-dark/60 transition-colors"
+                      >
+                        {mod.enabled ? (
+                          <Power className="w-3.5 h-3.5 text-theme-accent" />
+                        ) : (
+                          <PowerOff className="w-3.5 h-3.5 text-theme-text-muted" />
+                        )}
+                      </button>
+                      {/* Refresh (check for updates) */}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex-shrink-0"
+                        icon={<RefreshCw className="w-3.5 h-3.5" />}
+                        title="Check for updates"
+                        onClick={async () => {
+                          if (!selectedInstance) return;
+                          addToast("Checking for updates...", "info");
+                          // For now, just reload the list
+                          setLoadingInstalled(true);
+                          tauriCommands
+                            .get_local_mods(selectedInstance)
+                            .then(setInstalledMods)
+                            .catch(() => {})
+                            .finally(() => setLoadingInstalled(false));
+                        }}
+                      />
+                      {/* Delete */}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -429,9 +479,9 @@ export default function ModsModal() {
                         onClick={async () => {
                           if (!selectedInstance) return;
                           try {
-                            await tauriCommands.delete_mod(selectedInstance, mod.title, queryType);
+                            await tauriCommands.delete_mod(selectedInstance, mod.name, mod.project_type);
                             setInstalledMods((prev) => prev.filter((m) => m.id !== mod.id));
-                            addToast(`Deleted ${mod.title}`, "info");
+                            addToast(`Deleted ${mod.name}`, "info");
                           } catch {
                             addToast("Failed to delete mod", "error");
                           }

@@ -251,8 +251,14 @@ export type ModId =
   | { type: "curseforge"; id: string };
 
 export interface LocalMod {
+  id: string;
   name: string;
-  query_type: QueryType;
+  description: string;
+  enabled: boolean;
+  installed_version: string;
+  project_type: QueryType;
+  project_source: StoreBackendType;
+  icon_url?: string | null;
 }
 
 export interface ModConfig {
