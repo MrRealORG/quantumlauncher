@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Save, RotateCcw, Info, FolderOpen, Trash2, Pencil, Check, X, Download, RefreshCw, AlertTriangle, FileText, Loader2 } from "lucide-react";
+import { Save, RotateCcw, Info, FolderOpen, Trash2, Pencil, Check, X, Download, RefreshCw, AlertTriangle, FileText, Loader2, Plus, Package } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import Button from "@/components/common/Button";
 import Input from "@/components/common/Input";
 import Select from "@/components/common/Select";
 import ConfirmModal from "@/components/modals/ConfirmModal";
 import { tauriCommands } from "@/utils/tauri";
-import type { InstanceConfigJson, PreLaunchPrefixMode } from "@/types";
+import type { InstanceConfigJson, PreLaunchPrefixMode, CustomJarConfig } from "@/types";
 
 export default function EditTab() {
   const {
@@ -28,10 +28,26 @@ export default function EditTab() {
   const [serverProps, setServerProps] = useState<Record<string, string>>({});
   const [serverPropsLoading, setServerPropsLoading] = useState(false);
 
+  // Custom JAR state
+  const [customJarFiles, setCustomJarFiles] = useState<string[]>([]);
+  const [customJarLoading, setCustomJarLoading] = useState(false);
+  const [mainClassMode, setMainClassMode] = useState<"default" | "safefallback" | "custom">("default");
+  const [customMainClass, setCustomMainClass] = useState("");
+
   useEffect(() => {
     if (instanceConfig) {
       setLocalConfig({ ...instanceConfig });
       setHasChanges(false);
+      // Sync main class mode from config
+      if (instanceConfig.custom_jar?.autoset_main_class) {
+        setMainClassMode("safefallback");
+      } else if (instanceConfig.main_class_override) {
+        setMainClassMode("custom");
+        setCustomMainClass(instanceConfig.main_class_override);
+      } else {
+        setMainClassMode("default");
+        setCustomMainClass("");
+      }
     }
   }, [instanceConfig]);
 
@@ -144,6 +160,120 @@ export default function EditTab() {
       addToast("Failed to open folder", "error");
     }
   }, [selectedInstance, addToast]);
+
+  // Load custom JAR file list
+  const loadCustomJars = useCallback(async () => {
+    setCustomJarLoading(true);
+    try {
+      const { appDataDir } = await import("@tauri-apps/api/path");
+      const { readDir: fsReadDir } = await import("@tauri-apps/plugin-fs");
+      const dataDir = await appDataDir();
+      const jarDir = `${dataDir}QuantumLauncher/custom_jars`;
+      const entries = await fsReadDir(jarDir);
+      const jars = entries
+        .filter((e: { name?: string; isFile?: boolean; isDirectory?: boolean }) => e.isFile && e.name?.endsWith(".jar"))
+        .map((e: { name?: string }) => e.name!)
+        .sort();
+      setCustomJarFiles(jars);
+    } catch {
+      // Directory may not exist yet
+      setCustomJarFiles([]);
+    } finally {
+      setCustomJarLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedInstance?.kind === "Client") {
+      loadCustomJars();
+    }
+  }, [selectedInstance, loadCustomJars]);
+
+  const handleAddCustomJar = useCallback(async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const { copyFile } = await import("@tauri-apps/plugin-fs");
+      const { appDataDir } = await import("@tauri-apps/api/path");
+      const { mkdir } = await import("@tauri-apps/plugin-fs");
+
+      const selected = await open({
+        title: "Select Custom Minecraft JAR",
+        filters: [{ name: "Java Archive", extensions: ["jar"] }],
+        multiple: false,
+      });
+      if (!selected) return;
+
+      const srcPath = Array.isArray(selected) ? selected[0] : selected;
+      const fileName = srcPath.split(/[\\/]/).pop() || "custom.jar";
+      const dataDir = await appDataDir();
+      const jarDir = `${dataDir}QuantumLauncher/custom_jars`;
+
+      try { await mkdir(jarDir, { recursive: true }); } catch { /* dir may exist */ }
+      const destPath = `${jarDir}/${fileName}`;
+      await copyFile(srcPath, destPath);
+
+      const jarConfig: CustomJarConfig = { name: fileName, autoset_main_class: false };
+      updateInstanceConfig({ custom_jar: jarConfig });
+      addToast(`Custom JAR "${fileName}" added`, "success");
+      loadCustomJars();
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : "Failed to add JAR", "error");
+    }
+  }, [updateInstanceConfig, addToast, loadCustomJars]);
+
+  const handleRemoveCustomJar = useCallback(async () => {
+    if (!localConfig?.custom_jar) return;
+    const name = localConfig.custom_jar.name;
+    try {
+      const { remove } = await import("@tauri-apps/plugin-fs");
+      const { appDataDir } = await import("@tauri-apps/api/path");
+      const dataDir = await appDataDir();
+      await remove(`${dataDir}QuantumLauncher/custom_jars/${name}`);
+      updateInstanceConfig({ custom_jar: null, main_class_override: null });
+      setMainClassMode("default");
+      addToast(`Custom JAR "${name}" removed`, "success");
+      loadCustomJars();
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : "Failed to remove JAR", "error");
+    }
+  }, [localConfig?.custom_jar, updateInstanceConfig, addToast, loadCustomJars]);
+
+  const handleOpenCustomJarFolder = useCallback(async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-shell");
+      const { appDataDir } = await import("@tauri-apps/api/path");
+      const { mkdir } = await import("@tauri-apps/plugin-fs");
+      const dataDir = await appDataDir();
+      const jarDir = `${dataDir}QuantumLauncher/custom_jars`;
+      try { await mkdir(jarDir, { recursive: true }); } catch { /* dir may exist */ }
+      await open(jarDir);
+    } catch {
+      addToast("Failed to open folder", "error");
+    }
+  }, [addToast]);
+
+  const handleMainClassMode = useCallback((mode: "default" | "safefallback" | "custom") => {
+    setMainClassMode(mode);
+    const jar = localConfig?.custom_jar;
+    switch (mode) {
+      case "default":
+        updateInstanceConfig({ main_class_override: null, custom_jar: jar ? { ...jar, autoset_main_class: false } : undefined });
+        setCustomMainClass("");
+        break;
+      case "safefallback":
+        updateInstanceConfig({ main_class_override: null, custom_jar: jar ? { ...jar, autoset_main_class: true } : { name: "", autoset_main_class: true } });
+        setCustomMainClass("");
+        break;
+      case "custom":
+        updateInstanceConfig({ custom_jar: jar ? { ...jar, autoset_main_class: false } : undefined });
+        break;
+    }
+  }, [localConfig?.custom_jar, updateInstanceConfig]);
+
+  const handleCustomMainClassInput = useCallback((val: string) => {
+    setCustomMainClass(val);
+    updateInstanceConfig({ main_class_override: val || null });
+  }, [updateInstanceConfig]);
 
   if (!selectedInstance || !localConfig) {
     return (
@@ -372,6 +502,91 @@ export default function EditTab() {
             placeholder="--width 1280 --height 720"
           />
         </div>
+
+        {/* Custom JAR (Client only) */}
+        {selectedInstance.kind === "Client" && (
+          <div className="space-y-2">
+            <label className="block text-xs font-medium text-theme-text-muted mb-1.5">
+              Custom JAR File
+            </label>
+            <div className="flex items-center gap-1.5">
+              <Select
+                options={[
+                  { value: "(None)", label: "(None)" },
+                  ...customJarFiles.map((j) => ({ value: j, label: j })),
+                  { value: "+ Add JAR", label: "+ Add JAR" },
+                  { value: "- Remove Selected", label: "- Remove Selected" },
+                  { value: "> Open Folder", label: "> Open Folder" },
+                ]}
+                value={localConfig.custom_jar?.name || "(None)"}
+                onChange={(v) => {
+                  if (v === "+ Add JAR") {
+                    handleAddCustomJar();
+                  } else if (v === "- Remove Selected") {
+                    handleRemoveCustomJar();
+                  } else if (v === "> Open Folder") {
+                    handleOpenCustomJarFolder();
+                  } else if (v === "(None)") {
+                    updateInstanceConfig({ custom_jar: null });
+                  } else {
+                    const jarConfig: CustomJarConfig = {
+                      name: v,
+                      autoset_main_class: localConfig.custom_jar?.autoset_main_class || false,
+                    };
+                    updateInstanceConfig({ custom_jar: jarConfig });
+                  }
+                }}
+                disabled={customJarLoading}
+                placeholder={customJarLoading ? "Loading..." : undefined}
+              />
+            </div>
+            <p className="text-[10px] text-theme-text-muted/70">
+              For replacing the Minecraft JAR, not adding to it. To patch your existing JAR, use Mods &gt; Jarmod Patches.
+            </p>
+
+            {/* Main Class Mode */}
+            <div className="space-y-1.5 mt-2">
+              <label className="block text-[11px] font-medium text-theme-text-muted">Main Class</label>
+              <div className="space-y-1">
+                <label className="flex items-center gap-2 text-xs text-theme-text cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={mainClassMode === "default"}
+                    onChange={() => handleMainClassMode("default")}
+                    className="accent-theme-mid"
+                  />
+                  Default
+                </label>
+                <label className="flex items-center gap-2 text-xs text-theme-text cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={mainClassMode === "safefallback"}
+                    onChange={() => handleMainClassMode("safefallback")}
+                    className="accent-theme-mid"
+                  />
+                  Safe Mode (might fix crashes?)
+                </label>
+                <label className="flex items-center gap-2 text-xs text-theme-text cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={mainClassMode === "custom"}
+                    onChange={() => handleMainClassMode("custom")}
+                    className="accent-theme-mid"
+                  />
+                  Custom
+                </label>
+              </div>
+              {mainClassMode === "custom" && (
+                <Input
+                  value={customMainClass}
+                  onChange={(e) => handleCustomMainClassInput(e.target.value)}
+                  placeholder="Enter main class..."
+                  className="font-mono text-xs mt-1"
+                />
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Window Size */}
         {selectedInstance.kind === "Client" && (

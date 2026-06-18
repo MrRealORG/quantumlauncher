@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Upload, Copy, Search, X, Terminal } from "lucide-react";
+import { Upload, Copy, Search, X, Terminal, ExternalLink, Check, Loader2 } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import Button from "@/components/common/Button";
 import Input from "@/components/common/Input";
@@ -10,6 +10,9 @@ export default function LogTab() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [command, setCommand] = useState("");
+  const [uploadingLog, setUploadingLog] = useState(false);
+  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
+  const [uploadCopied, setUploadCopied] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const commandInputRef = useRef<HTMLInputElement>(null);
 
@@ -52,15 +55,29 @@ export default function LogTab() {
   }, []);
 
   const handleUploadLog = useCallback(async () => {
-    if (!log) return;
+    if (!log || uploadingLog) return;
+    setUploadingLog(true);
+    setUploadedUrl(null);
     try {
       const url = await tauriCommands.upload_log(log.lines.join("\n"));
-      await navigator.clipboard.writeText(url);
-      addToast(`Log uploaded: ${url}`, "success");
+      setUploadedUrl(url);
     } catch {
       addToast("Failed to upload log", "error");
+    } finally {
+      setUploadingLog(false);
     }
-  }, [log, addToast]);
+  }, [log, uploadingLog, addToast]);
+
+  const handleCopyUploadedUrl = useCallback(async () => {
+    if (!uploadedUrl) return;
+    try {
+      await navigator.clipboard.writeText(uploadedUrl);
+      setUploadCopied(true);
+      setTimeout(() => setUploadCopied(false), 2000);
+    } catch {
+      addToast("Failed to copy URL", "error");
+    }
+  }, [uploadedUrl, addToast]);
 
   const handleCopyLog = useCallback(async () => {
     if (!log) return;
@@ -116,8 +133,14 @@ export default function LogTab() {
             }
           />
         </div>
-        <Button variant="ghost" size="sm" icon={<Upload className="w-3.5 h-3.5" />} onClick={handleUploadLog}>
-          Upload Log
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={uploadingLog ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+          onClick={handleUploadLog}
+          disabled={!log || log.lines.length === 0 || uploadingLog}
+        >
+          {uploadingLog ? "Uploading..." : "Upload Log"}
         </Button>
         <Button variant="ghost" size="sm" icon={<Copy className="w-3.5 h-3.5" />} onClick={handleCopyLog}>
           Copy
@@ -128,6 +151,39 @@ export default function LogTab() {
           </span>
         )}
       </div>
+
+      {/* Upload Result Banner */}
+      {uploadedUrl && (
+        <div className="mx-4 mt-2 bg-green-500/10 border border-green-500/30 rounded-lg px-3 py-2 flex items-center gap-2">
+          <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] text-green-400 font-medium">Log uploaded to mclo.gs</p>
+            <p className="text-[10px] text-theme-mid font-mono truncate">{uploadedUrl}</p>
+          </div>
+          <button
+            onClick={handleCopyUploadedUrl}
+            className="flex items-center gap-1 text-[10px] text-theme-text-muted hover:text-theme-text transition-colors px-1.5 py-0.5 rounded hover:bg-theme-second-dark/40 flex-shrink-0"
+          >
+            {uploadCopied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
+            {uploadCopied ? "Copied" : "Copy"}
+          </button>
+          <a
+            href={uploadedUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 text-[10px] text-theme-mid hover:text-theme-accent transition-colors px-1.5 py-0.5 rounded hover:bg-theme-second-dark/40 flex-shrink-0"
+          >
+            <ExternalLink className="w-3 h-3" />
+            Open
+          </a>
+          <button
+            onClick={() => setUploadedUrl(null)}
+            className="text-theme-text-muted hover:text-theme-text transition-colors flex-shrink-0"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Log Content */}
       <div
