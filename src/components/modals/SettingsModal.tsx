@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
-import { RotateCcw } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { RotateCcw, Trash2 } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import { useThemeStore } from "@/stores/themeStore";
 import Modal from "@/components/common/Modal";
@@ -7,6 +8,7 @@ import Button from "@/components/common/Button";
 import Input from "@/components/common/Input";
 import Select from "@/components/common/Select";
 import TabBar from "@/components/common/TabBar";
+import ConfirmModal from "@/components/modals/ConfirmModal";
 import { tauriCommands } from "@/utils/tauri";
 import type { ThemeColor, ThemeLightness, AfterLaunchBehavior, PresenceStatusDisplayType, LauncherConfig } from "@/types";
 
@@ -369,6 +371,44 @@ export default function SettingsModal() {
     </div>
   );
 
+  // Java install progress state (listens to generic-progress events)
+  const [javaInstallProgress, setJavaInstallProgress] = useState<{ done: number; total: number; message: string; has_finished: boolean } | null>(null);
+  const javaProgressDoneRef = useRef(false);
+
+  // Listen for Java install progress on the launcher tab
+  useEffect(() => {
+    const unlisten = listen<{ done: number; total: number; message: string; has_finished: boolean }>("generic-progress", (event) => {
+      const msg = (event.payload as { message?: string }).message || "";
+      // Only capture Java-related progress
+      if (msg.toLowerCase().includes("java")) {
+        setJavaInstallProgress(event.payload as { done: number; total: number; message: string; has_finished: boolean });
+        if (event.payload.has_finished) {
+          javaProgressDoneRef.current = true;
+          // Auto-clear after 4 seconds
+          setTimeout(() => {
+            setJavaInstallProgress(null);
+            javaProgressDoneRef.current = false;
+          }, 4000);
+        }
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  const [confirmDeleteJava, setConfirmDeleteJava] = useState(false);
+
+  const handleDeleteJavaInstalls = useCallback(async () => {
+    setConfirmDeleteJava(false);
+    try {
+      await tauriCommands.delete_java_installs();
+      addToast("Auto-installed Java files deleted. They will be reinstalled as needed.", "success");
+    } catch {
+      addToast("Failed to delete Java installs", "error");
+    }
+  }, [addToast]);
+
   const renderLauncher = () => (
     <div className="space-y-5">
       <SettingRow
@@ -399,22 +439,78 @@ export default function SettingsModal() {
         Open Launcher Folder
       </Button>
 
+      {/* Java Install Progress */}
+      {javaInstallProgress && (
+        <div className="bg-theme-dark border border-theme-mid/30 rounded-lg p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-theme-text">
+              {javaInstallProgress.has_finished ? "Java Installed" : "Installing Java..."}
+            </span>
+            <span className="text-[10px] text-theme-text-muted">
+              {javaInstallProgress.total > 0
+                ? `${Math.round((javaInstallProgress.done / javaInstallProgress.total) * 100)}%`
+                : ""}
+            </span>
+          </div>
+          <div className="w-full h-1.5 bg-theme-second-dark rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${
+                javaInstallProgress.has_finished
+                  ? "bg-green-500"
+                  : "bg-theme-mid animate-pulse"
+              }`}
+              style={{
+                width: javaInstallProgress.total > 0
+                  ? `${(javaInstallProgress.done / javaInstallProgress.total) * 100}%`
+                  : "100%",
+              }}
+            />
+          </div>
+          {javaInstallProgress.message && (
+            <p className="text-[10px] text-theme-text-muted truncate">{javaInstallProgress.message}</p>
+          )}
+        </div>
+      )}
+
+      {/* Java Management */}
+      <div className="border-t border-theme-second-dark pt-4">
+        <h3 className="text-xs font-semibold text-theme-text-muted mb-3">Java Management</h3>
+        <div className="space-y-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            className="w-full justify-start"
+            onClick={async () => {
+              try {
+                await tauriCommands.clear_java_installs();
+                addToast("Java install cache cleared", "success");
+              } catch {
+                addToast("Failed to clear Java installs", "error");
+              }
+            }}
+          >
+            Clear Java Installs
+          </Button>
+          <p className="text-[10px] text-theme-text-muted/70 -mt-1">
+            Clear cached Java metadata. Safe — Java will be redownloaded automatically as needed.
+          </p>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="w-full justify-start text-theme-error hover:text-theme-error hover:bg-theme-error/10"
+            icon={<Trash2 className="w-3.5 h-3.5" />}
+            onClick={() => setConfirmDeleteJava(true)}
+          >
+            Delete Java Installs
+          </Button>
+          <p className="text-[10px] text-theme-text-muted/70 -mt-1">
+            Permanently delete auto-installed Java files. This takes a while to redownload.
+          </p>
+        </div>
+      </div>
+
+      {/* Other maintenance */}
       <div className="space-y-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          className="w-full justify-start"
-          onClick={async () => {
-            try {
-              await tauriCommands.clear_java_installs();
-              addToast("Java installs cleared", "success");
-            } catch {
-              addToast("Failed to clear Java installs", "error");
-            }
-          }}
-        >
-          Clear Java Installs
-        </Button>
         <Button
           variant="secondary"
           size="sm"
@@ -446,6 +542,15 @@ export default function SettingsModal() {
           Clean Unused Assets
         </Button>
       </div>
+
+      {/* Confirm Delete Java Installs */}
+      <ConfirmModal
+        open={confirmDeleteJava}
+        title="Delete Java Installs"
+        message="Are you sure you want to delete auto-installed Java files? They will get reinstalled automatically as needed. Note: This does take a while to redownload."
+        onConfirm={handleDeleteJavaInstalls}
+        onCancel={() => setConfirmDeleteJava(false)}
+      />
     </div>
   );
 
