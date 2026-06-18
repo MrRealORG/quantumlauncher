@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Search, Download, X, Filter, Upload, Info } from "lucide-react";
+import { Search, Download, X, Filter, Upload, Info, Package } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import Modal from "@/components/common/Modal";
 import Button from "@/components/common/Button";
@@ -39,6 +39,7 @@ export default function CreateInstanceModal() {
   const [instanceKind, setInstanceKind] = useState<InstanceKind>("Client");
   const [isCreating, setIsCreating] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isImportingModpack, setIsImportingModpack] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const open = screen.type === "create_instance";
@@ -138,6 +139,38 @@ export default function CreateInstanceModal() {
       setIsImporting(false);
     }
   }, [loadInstances, addToast, setScreen]);
+
+  const handleImportModpack = useCallback(async () => {
+    if (!instanceName.trim()) {
+      setError("Enter an instance name first");
+      return;
+    }
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
+        title: "Select modpack file (.mrpack or .zip)",
+        filters: [
+          { name: "Modpack", extensions: ["mrpack", "zip"] },
+          { name: "All files", extensions: ["*"] },
+        ],
+        multiple: false,
+      });
+      if (!selected) return;
+
+      const path = Array.isArray(selected) ? selected[0] : selected;
+      setIsImportingModpack(true);
+      setError(null);
+
+      await tauriCommands.install_modpack(path, instanceName.trim(), instanceKind);
+      await loadInstances();
+      addToast(`Modpack installed into "${instanceName.trim()}"`, "success");
+      setScreen({ type: "main" });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsImportingModpack(false);
+    }
+  }, [instanceName, instanceKind, loadInstances, addToast, setScreen]);
 
   const handleClose = useCallback(() => {
     setScreen({ type: "main" });
@@ -280,6 +313,17 @@ export default function CreateInstanceModal() {
               title="Import from MultiMC/Prism/QuantumLauncher archive"
             >
               Import
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Package className="w-3.5 h-3.5" />}
+              onClick={handleImportModpack}
+              loading={isImportingModpack}
+              disabled={!instanceName.trim()}
+              title="Install a .mrpack modpack into a new instance"
+            >
+              Modpack
             </Button>
             <Button variant="ghost" onClick={handleClose}>
               Cancel

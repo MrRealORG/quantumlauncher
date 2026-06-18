@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Save, RotateCcw, Info, FolderOpen, Trash2, Pencil, Check, X, Download, RefreshCw, AlertTriangle } from "lucide-react";
+import { Save, RotateCcw, Info, FolderOpen, Trash2, Pencil, Check, X, Download, RefreshCw, AlertTriangle, FileText, Loader2 } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import Button from "@/components/common/Button";
 import Input from "@/components/common/Input";
@@ -24,6 +24,9 @@ export default function EditTab() {
   const [renameValue, setRenameValue] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const [redownloading, setRedownloading] = useState<string | null>(null);
+  const [showServerProps, setShowServerProps] = useState(false);
+  const [serverProps, setServerProps] = useState<Record<string, string>>({});
+  const [serverPropsLoading, setServerPropsLoading] = useState(false);
 
   useEffect(() => {
     if (instanceConfig) {
@@ -535,6 +538,88 @@ export default function EditTab() {
                 Open Folder
               </Button>
             </div>
+          </div>
+        )}
+
+        {/* Server Properties (Server only) */}
+        {selectedInstance.kind === "Server" && (
+          <div className="border-t border-theme-second-dark pt-4 mt-2">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold text-theme-text-muted">Server</h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<FileText className="w-3.5 h-3.5" />}
+                onClick={async () => {
+                  setServerPropsLoading(true);
+                  setShowServerProps(true);
+                  try {
+                    const props = await tauriCommands.get_server_properties(selectedInstance.name);
+                    setServerProps(props);
+                  } catch {
+                    addToast("Failed to load server.properties", "error");
+                    setShowServerProps(false);
+                  } finally {
+                    setServerPropsLoading(false);
+                  }
+                }}
+              >
+                Edit server.properties
+              </Button>
+            </div>
+            {showServerProps && (
+              <div className="space-y-2">
+                {serverPropsLoading ? (
+                  <div className="flex items-center gap-2 text-xs text-theme-text-muted py-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Loading properties...
+                  </div>
+                ) : (
+                  <>
+                    <div className="max-h-48 overflow-y-auto space-y-1 bg-theme-dark border border-theme-second-dark rounded-lg p-2">
+                      {Object.entries(serverProps).map(([key, val]) => (
+                        <div key={key} className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-mono text-theme-mid w-36 flex-shrink-0 truncate" title={key}>
+                            {key}
+                          </span>
+                          <span className="text-theme-text-muted text-xs">=</span>
+                          <input
+                            className="flex-1 bg-theme-surface border border-theme-second-dark text-theme-text text-xs rounded px-1.5 py-0.5 outline-none focus:border-theme-mid min-w-0"
+                            value={val}
+                            onChange={(e) =>
+                              setServerProps((prev) => ({ ...prev, [key]: e.target.value }))
+                            }
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={async () => {
+                          try {
+                            await tauriCommands.save_server_properties(selectedInstance.name, serverProps);
+                            addToast("server.properties saved", "success");
+                          } catch {
+                            addToast("Failed to save server.properties", "error");
+                          }
+                        }}
+                      >
+                        Save Properties
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowServerProps(false)}
+                      >
+                        Close
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
 
