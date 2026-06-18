@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { RotateCcw } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import { useThemeStore } from "@/stores/themeStore";
 import Modal from "@/components/common/Modal";
@@ -380,6 +381,24 @@ export default function SettingsModal() {
         />
       </SettingRow>
 
+      <Button
+        variant="secondary"
+        size="sm"
+        className="w-full justify-start"
+        onClick={async () => {
+          try {
+            const { open } = await import("@tauri-apps/plugin-shell");
+            const { appDataDir } = await import("@tauri-apps/api/path");
+            const dataDir = await appDataDir();
+            await open(`${dataDir}QuantumLauncher`);
+          } catch {
+            addToast("Failed to open launcher folder", "error");
+          }
+        }}
+      >
+        Open Launcher Folder
+      </Button>
+
       <div className="space-y-2">
         <Button
           variant="secondary"
@@ -430,31 +449,57 @@ export default function SettingsModal() {
     </div>
   );
 
-  const renderDiscord = () => (
+  const renderDiscord = () => {
+    const rpc = config?.discord_rpc;
+    const handleResetRpc = () => {
+      uc({ discord_rpc: { enable: false, name: null, status_display_type: "Name", update_on_game_open: true, competing: false, basic: { top_text: null, top_text_url: null, bottom_text: null, bottom_text_url: null }, on_gameopen: { top_text: null, top_text_url: null, bottom_text: null, bottom_text_url: null }, on_gameexit: { top_text: null, top_text_url: null, bottom_text: null, bottom_text_url: null } } });
+      addToast("Discord RPC reset to defaults", "info");
+    };
+
+    return (
     <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div />
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<RotateCcw className="w-3.5 h-3.5" />}
+          onClick={handleResetRpc}
+        >
+          Reset to Defaults
+        </Button>
+      </div>
+
       <SettingRow
         label="Enable Discord Rich Presence"
         description="Show current activity in Discord status"
       >
         <Toggle
-          checked={config?.discord_rpc?.enable === true}
+          checked={rpc?.enable === true}
           onChange={() =>
-            uc({
-              discord_rpc: { enable: !config?.discord_rpc?.enable },
-            })
+            uc({ discord_rpc: { enable: !rpc?.enable } })
           }
         />
       </SettingRow>
 
       <div>
+        <label className="block text-xs font-medium text-theme-text-muted mb-1.5">Custom Activity Name</label>
+        <Input
+          value={rpc?.name || ""}
+          onChange={(e) =>
+            uc({ discord_rpc: { name: e.target.value || null } })
+          }
+          placeholder="QuantumLauncher"
+        />
+      </div>
+
+      <div>
         <label className="block text-xs font-medium text-theme-text-muted mb-1.5">Status Display Type</label>
         <Select
           options={STATUS_DISPLAY.map((s) => ({ value: s.value, label: s.label }))}
-          value={config?.discord_rpc?.status_display_type || "Name"}
+          value={rpc?.status_display_type || "Name"}
           onChange={(v) =>
-            uc({
-              discord_rpc: { status_display_type: v as PresenceStatusDisplayType },
-            })
+            uc({ discord_rpc: { status_display_type: v as PresenceStatusDisplayType } })
           }
         />
       </div>
@@ -464,11 +509,9 @@ export default function SettingsModal() {
         description="Change presence when game launches or exits"
       >
         <Toggle
-          checked={config?.discord_rpc?.update_on_game_open !== false}
+          checked={rpc?.update_on_game_open !== false}
           onChange={() =>
-            uc({
-              discord_rpc: { update_on_game_open: !config?.discord_rpc?.update_on_game_open },
-            })
+            uc({ discord_rpc: { update_on_game_open: !rpc?.update_on_game_open } })
           }
         />
       </SettingRow>
@@ -478,75 +521,157 @@ export default function SettingsModal() {
         description="Show as 'competing' instead of 'playing' in Discord"
       >
         <Toggle
-          checked={config?.discord_rpc?.competing === true}
+          checked={rpc?.competing === true}
           onChange={() =>
-            uc({
-              discord_rpc: { competing: !config?.discord_rpc?.competing },
-            })
+            uc({ discord_rpc: { competing: !rpc?.competing } })
           }
         />
       </SettingRow>
 
-      <div>
-        <label className="block text-xs font-medium text-theme-text-muted mb-1.5">Basic Top Text</label>
-        <Input
-          value={config?.discord_rpc?.basic?.top_text || ""}
-          onChange={(e) =>
-            uc({
-              discord_rpc: {
-                basic: { top_text: e.target.value || null },
-              },
-            })
-          }
-          placeholder="Opened Launcher"
-        />
+      {/* Basic presence */}
+      <div className="border-t border-theme-second-dark pt-4">
+        <h3 className="text-xs font-semibold text-theme-text mb-3">Basic Presence</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-[11px] font-medium text-theme-text-muted mb-1">Top Text</label>
+            <Input
+              value={rpc?.basic?.top_text || ""}
+              onChange={(e) =>
+                uc({ discord_rpc: { basic: { top_text: e.target.value || null } } })
+              }
+              placeholder="Opened Launcher"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-theme-text-muted mb-1">Top Text URL</label>
+            <Input
+              value={rpc?.basic?.top_text_url || ""}
+              onChange={(e) =>
+                uc({ discord_rpc: { basic: { top_text_url: e.target.value || null } } })
+              }
+              placeholder="https://..."
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-theme-text-muted mb-1">Bottom Text</label>
+            <Input
+              value={rpc?.basic?.bottom_text || ""}
+              onChange={(e) =>
+                uc({ discord_rpc: { basic: { bottom_text: e.target.value || null } } })
+              }
+              placeholder=""
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-theme-text-muted mb-1">Bottom Text URL</label>
+            <Input
+              value={rpc?.basic?.bottom_text_url || ""}
+              onChange={(e) =>
+                uc({ discord_rpc: { basic: { bottom_text_url: e.target.value || null } } })
+              }
+              placeholder="https://..."
+            />
+          </div>
+        </div>
       </div>
 
-      <div>
-        <label className="block text-xs font-medium text-theme-text-muted mb-1.5">Basic Top Text URL</label>
-        <Input
-          value={config?.discord_rpc?.basic?.top_text_url || ""}
-          onChange={(e) =>
-            uc({
-              discord_rpc: {
-                basic: { top_text_url: e.target.value || null },
-              },
-            })
-          }
-          placeholder="https://..."
-        />
+      {/* On Game Open event */}
+      <div className="border-t border-theme-second-dark pt-4">
+        <h3 className="text-xs font-semibold text-theme-text mb-1">On Game Open</h3>
+        <p className="text-[10px] text-theme-text-muted/70 mb-3">Use {'{'}instance{'}'} and {'{'}version{'}'} as placeholders</p>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-[11px] font-medium text-theme-text-muted mb-1">Top Text</label>
+            <Input
+              value={rpc?.on_gameopen?.top_text || ""}
+              onChange={(e) =>
+                uc({ discord_rpc: { on_gameopen: { top_text: e.target.value || null } } })
+              }
+              placeholder="Playing {'{'}instance{'}'}"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-theme-text-muted mb-1">Top Text URL</label>
+            <Input
+              value={rpc?.on_gameopen?.top_text_url || ""}
+              onChange={(e) =>
+                uc({ discord_rpc: { on_gameopen: { top_text_url: e.target.value || null } } })
+              }
+              placeholder="https://..."
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-theme-text-muted mb-1">Bottom Text</label>
+            <Input
+              value={rpc?.on_gameopen?.bottom_text || ""}
+              onChange={(e) =>
+                uc({ discord_rpc: { on_gameopen: { bottom_text: e.target.value || null } } })
+              }
+              placeholder="{'{'}version{'}'}"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-theme-text-muted mb-1">Bottom Text URL</label>
+            <Input
+              value={rpc?.on_gameopen?.bottom_text_url || ""}
+              onChange={(e) =>
+                uc({ discord_rpc: { on_gameopen: { bottom_text_url: e.target.value || null } } })
+              }
+              placeholder="https://..."
+            />
+          </div>
+        </div>
       </div>
 
-      <div>
-        <label className="block text-xs font-medium text-theme-text-muted mb-1.5">Basic Bottom Text</label>
-        <Input
-          value={config?.discord_rpc?.basic?.bottom_text || ""}
-          onChange={(e) =>
-            uc({
-              discord_rpc: {
-                basic: { bottom_text: e.target.value || null },
-              },
-            })
-          }
-        />
-      </div>
-
-      <div>
-        <label className="block text-xs font-medium text-theme-text-muted mb-1.5">Basic Bottom Text URL</label>
-        <Input
-          value={config?.discord_rpc?.basic?.bottom_text_url || ""}
-          onChange={(e) =>
-            uc({
-              discord_rpc: {
-                basic: { bottom_text_url: e.target.value || null },
-              },
-            })
-          }
-          placeholder="https://..."
-        />
+      {/* On Game Exit event */}
+      <div className="border-t border-theme-second-dark pt-4">
+        <h3 className="text-xs font-semibold text-theme-text mb-3">On Game Exit</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-[11px] font-medium text-theme-text-muted mb-1">Top Text</label>
+            <Input
+              value={rpc?.on_gameexit?.top_text || ""}
+              onChange={(e) =>
+                uc({ discord_rpc: { on_gameexit: { top_text: e.target.value || null } } })
+              }
+              placeholder=""
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-theme-text-muted mb-1">Top Text URL</label>
+            <Input
+              value={rpc?.on_gameexit?.top_text_url || ""}
+              onChange={(e) =>
+                uc({ discord_rpc: { on_gameexit: { top_text_url: e.target.value || null } } })
+              }
+              placeholder="https://..."
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-theme-text-muted mb-1">Bottom Text</label>
+            <Input
+              value={rpc?.on_gameexit?.bottom_text || ""}
+              onChange={(e) =>
+                uc({ discord_rpc: { on_gameexit: { bottom_text: e.target.value || null } } })
+              }
+              placeholder=""
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-theme-text-muted mb-1">Bottom Text URL</label>
+            <Input
+              value={rpc?.on_gameexit?.bottom_text_url || ""}
+              onChange={(e) =>
+                uc({ discord_rpc: { on_gameexit: { bottom_text_url: e.target.value || null } } })
+              }
+              placeholder="https://..."
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
+  };
 
   const renderAbout = () => (
     <div className="space-y-4 text-sm">
